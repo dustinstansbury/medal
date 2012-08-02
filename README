@@ -1,5 +1,5 @@
-deepLearningToolbox - version 0.0
-aka Matlab Object-oriented Learning API (MOOLA)
+Matlab Environment for Deep Architecture Learning (MEDAL) - version 0.0
+ 
 -------------------------------------------------------------------------
 Contents:
 	mlnn.m        -- Multi-layer neural netowrk object
