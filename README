@@ -1,0 +1,55 @@
+deepLearningToolbox - version 0.0
+aka Matlab Object-oriented Learning API (MOOLA)
+-------------------------------------------------------------------------
+Contents:
+	mlnn.m        -- Multi-layer neural netowrk object
+	rbm.m         -- Restricted Boltzmann Machine object
+	rmbClassifier -- RBM object with softmax outputs
+	dbn.m         -- Deep Belief Network object
+	dae.m         -- Deep Autoencoder (IN DEVELOPMENT)
+-------------------------------------------------------------------------
+To begin type:
+
+>> startLearning
+
+in the deepLearningToolbox_v00 directory
+
+To get an idea of how the objects work, check out the demo script:
+
+>> deepLearningExamples
+
+Keep in mind that these examples are not optimized, but are more for you to
+get familiar with the code.
+-------------------------------------------------------------------------
+References:
+
+Hinton, G. E. 
+"Training Products of Experts by Minimizing Contrastive Divergence".
+Neural Computation 14 (8): 1771–1800. 2002
+
+Hinton, G. E.
+"A practical guide to training restricted Boltzmann machines"
+Technnical Report 2010
+
+Ruslan Salakhutdinov
+"Learning Deep Generative Models."
+PhD Thesis, Sep 2009
+Dept. of Computer Science, University of Toronto
+
+Cho, K., Ilin, A., and Raiko, T.
+"Improved Learning of Gaussian-Bernoulli Restricted Boltzmann Machines."
+ICANN 2011
+
+Bengio, Y., Lamblin, P., Popovici, P., Larochelle, H.
+"Greedy Layer-Wise Training of Deep Networks"
+NIPS 2006
+
+Hinton, G. E. and Salakhutdinov, R. R
+"Reducing the dimensionality of data with neural networks."
+Science, Vol. 313. no. 5786, pp. 504 - 507, 28 July 2006.
+
+-------------------------------------------------------------------------
+If you have any questions or bugs, please send them my way:
+
+stan_s_bury@berkeley.edu
+
