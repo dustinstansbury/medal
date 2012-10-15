@@ -23,7 +23,7 @@ title('Reconstruction');
 [c,r,k]=size(RBM.eHid);
 subplot(223);
 data = reshape(RBM.eHid,r*c,k);
-visWeights(L2Normalize(data),1);
+visWeights(L2normalize(data),1);
 title('Feature Maps');
 
 [c,r,k]=size(RBM.W);
@@ -64,7 +64,7 @@ title('Sparsenss Offset')
 %  title('Hidden Bias Gradients')
 
 
-function out = L2normalize(in);
+function out = L2normalize(in)
 vectLen = sqrt(dot(in,in,1));
 vectLen(vectLen==0) = 1;
 out = bsxfun(@rdivide,in,vectLen);
