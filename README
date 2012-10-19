@@ -3,11 +3,12 @@ Matlab Environment for Deep Architecture Learning (MEDAL) - version 0.0
 -------------------------------------------------------------------------
 Contents:
 	mlnn.m        -- Multi-layer neural netowrk object
-	rbm.m         -- Restricted Boltzmann Machine object
+	rbm.m         -- Restricted Boltzmann machine object
 	rmbClassifier -- RBM object with softmax outputs
 	dbn.m         -- Deep Belief Network object
 	crbm.m	      -- Convolutional RBM
 	dae.m         -- Deep Autoencoder (IN DEVELOPMENT)
+	cnn.m         -- Convolutional neural network (IN DEVELOPMENT)
 -------------------------------------------------------------------------
 To begin type:
 
