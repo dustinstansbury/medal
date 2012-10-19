@@ -6,13 +6,14 @@ Contents:
 	rbm.m         -- Restricted Boltzmann Machine object
 	rmbClassifier -- RBM object with softmax outputs
 	dbn.m         -- Deep Belief Network object
+	cnn.m	      -- Convolutional RBM
 	dae.m         -- Deep Autoencoder (IN DEVELOPMENT)
 -------------------------------------------------------------------------
 To begin type:
 
 >> startLearning
 
-in the deepLearningToolbox_v00 directory
+in the medal directory
 
 To get an idea of how the objects work, check out the demo script:
 
