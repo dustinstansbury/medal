@@ -6,7 +6,7 @@ Contents:
 	rbm.m         -- Restricted Boltzmann Machine object
 	rmbClassifier -- RBM object with softmax outputs
 	dbn.m         -- Deep Belief Network object
-	cnn.m	      -- Convolutional RBM
+	crbm.m	      -- Convolutional RBM
 	dae.m         -- Deep Autoencoder (IN DEVELOPMENT)
 -------------------------------------------------------------------------
 To begin type:
