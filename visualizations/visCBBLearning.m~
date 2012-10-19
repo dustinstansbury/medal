@@ -6,7 +6,7 @@ function [] = visCBBLearning(RBM,X,iE);
 
 
 if notDefined('iE')
-	iE = numel(find(RBM.log.err~=0));
+	iE = numel(find(RBM.log.error~=0));
 end
 
 figure(99)
