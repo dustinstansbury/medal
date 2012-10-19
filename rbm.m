@@ -8,7 +8,6 @@ properties
 	class = 'rbm'; 		% GENERAL CLASS OF MODEL
 	type = 'BB';		% TYPE OF RBM ('BB','GB','GG')
 	X = [];				% TRAINING DATA
-	sigmaX = []; 		% STDEV OF TRAINING DATA
 	nObs = [];			% # OF TRAINING OBSERVATIONS
 	nVis = [];			% # OF VISIBLE UNITS (DIMENSIONS)
 	nHid = 100;			% # OF HIDDEN UNITS
@@ -31,9 +30,7 @@ properties
 	batchIdx = [];		% BATCH INDICES INTO TRAINING DATA
 	z = [];				% LOG VARIANCES (GAUSS UNITS)
 	dz = [];			% LEARNING INCREMENT FOR LOG VARIANCES
-	sigma2 = [];		% CURRENT ESTIMATE OF VARIANCE OF (G-) UNIT
-	dSigma2 = [];		% LEARtNING INCREMENT FOR VARIANCE
-	learnSigma2 = 0;	% FLAG FOR LEARNING GAUSSIAN VARIANCES (WARNING, UNTESTED)
+	sigma2 = [];		% VARIANCE OF (G-) UNIT
 	sampleVis = 0;		% SAMPLE THE VISIBLE UNITS
 	sampleHid = 1;		% SAMPLE HIDDEN UNITS 
 	momentum = 0.5;		% MOMENTUM TERM FOR WEIGHT ESTIMATION
@@ -49,10 +46,11 @@ properties
 	saveEvery = 0;		% # OF EPOCHS TO SAVE INTERMEDIATE MODELS
 	displayEvery = 50;	% DIPLAY EVERY # UPDATES
 	visFun = [];		% USER-DEFINED FUNCTION ('@myFun')
-	centerData = 0;		% SUBTRACT MEAN FROMclass14 INPUTS
+	auxVars = []; 		% AUXILLARY VARIABLES, JUST IN CASE
+	centerData = 0;		% SUBTRACT MEAN FROM INPUTS
 	scaleData = 0;		% SCALE DATA BY STDEV
 	chkConverge = 0;	% FLAG FOR CHECKING CONVERBENCE
-	useGPU = 0; 		% USE CUDA, IF AVAILABLE
+	useGPU = 1; 		% USE CUDA, IF AVAILABLE
 	gpuDevice = [];		% GPU DEVICE STRUCTURE
 	saveFold='./rbmSave';% # DEFAULT SAVE FOLclass14DER
 		
@@ -198,8 +196,7 @@ methods
 					aHid = pHid;
 				end
 			case 'GB'
-				scaledX = bsxfun(@rdivide,X,self.sigma2);
-				pHid = self.sigmoid(bsxfun(@plus,scaledX*self.W,self.c));
+				pHid = self.sigmoid(bsxfun(@plus,X*self.W,self.c));
 				if sampleHid
 					aHid = single(pHid>rand(size(X,1),self.nHid));
 				else
@@ -222,7 +219,7 @@ methods
 				end
 			case 'GB'
 				mu = bsxfun(@plus,aHid*self.W',self.b);
-				pVis = self.drawNormal(mu,self.sigma2);
+				pVis = self.drawNormal(mu);
 				
 				if sampleVis
 					aVis = pVis;
@@ -254,14 +251,13 @@ methods
 
 		% GAUSSIAN-BERNOULLI UNITS 
 		case 'GB'
-			sigma2 = repmat(self.sigma2,nObs,1);
 			% CONNECTION WEIGHTS
-			dW=bsxfun(@rdivide,(X'*self.pHid0 - self.aVis'*self.pHid),(nObs*self.sigma2)'); 
+			dW=bsxfun(@rdivide,(X'*self.pHid0 - self.aVis'*self.pHid),nObs');
 			self.dW=self.momentum*self.dW + self.eta*dW*(1-self.momentum) - self.wPenalty*self.W;
 			self.W = self.W + self.dW;
 
 			% VISIBLE BIASES
-			db = mean(X./sigma2) - mean(self.aVis./sigma2); 
+			db = mean(X) - mean(self.aVis);
 			self.db = self.momentum*self.db + self.eta*db;
 			self.b = self.b + self.db;
 
@@ -270,23 +266,7 @@ methods
 			self.dc = self.momentum*self.dc + self.eta*dc;
 			self.c = self.c + self.dc;
 
-			if self.learnSigma2
-				% HERE WE LEARN LOG VARIANCES TO ENFORCE
-				% POSITIVITY CONSTRAINT (WARNING UNSTABLE!)
-				tmp = bsxfun(@minus,X,self.b).^2;
-				EzDat = bsxfun(@rdivide,mean(tmp-(X.*(self.pHid0*self.W'))),self.sigma2);
 
-				tmp = bsxfun(@minus,self.aVis,self.b).^2;
-				EzMod = bsxfun(@rdivide,mean(tmp-(self.aVis.*(self.pHid*self.W'))),self.sigma2);
-				% DERIVATIVE OF LOG-VARIANCE
-				dz = bsxfun(@times,(EzDat-EzMod),exp(-self.z)); 
-				self.dz = self.momentum*self.dz + self.eta*dz -self.wPenalty*self.z;
-				self.z = self.z + self.dz;
-				self.z(isnan(self.z)) = 1e-6;
-				self.z(find(self.z>=0)) = 1e-6;
-				% UPDATE THE VARIANCES
-				self.sigma2 = exp(self.z) + 1e-8;
-			end
 		end
 	end
 
@@ -337,13 +317,7 @@ methods
 		
 		% INIT. LOG VARIANCES (GAUSSIAN UNITS)
 		if strcmp(self.type(1),'G') % IF VISIBLE
-			self.sigma2 = ones(1,self.nVis);
-			self.z = log(self.sigma2);
-			self.dz = zeros(size(self.z));
-		elseif strcmp(self.type(2),'G'); % IF HIDDEN
-			self.sigma2 = ones(1,self.nHid);
-			self.z = log(self.sigma2);
-			self.dz = zeros(size(self.z));
+			self.sigma2 = diag(ones(1,self.nVis));
 		end
 		if self.centerData
 			data = bsxfun(@minus,data,mean(data,1));
@@ -381,10 +355,8 @@ methods
 		p = arrayfun(@(x)(1./(1 + exp(-x))),X);
 	end
 
-	function p = drawNormal(self,mu,sigma2);
-		S = eye(numel(sigma2));
-		S(find(S)) = sigma2;
-		p = mvnrnd(mu,S);
+	function p = drawNormal(self,mu);
+		p = mvnrnd(mu,self.sigma2);
 	end
 
 	% VISUALIZATION
@@ -467,13 +439,12 @@ methods
 				sampE = -X*self.b' - sum(-log(1./exp(H)),2);
 				F = mean(sampE);
 			case 'G'
-				H = ones(nSamps,1)*self.c + ...
-		             bsxfun(@rdivide,X,self.sigma2)*self.W;
+				H = ones(nSamps,1)*self.c + X*self.W;
 		             
 				H = max(min(H,upBound),loBound);
 				% SAMPLE ENERGIES
 				sampE = bsxfun(@minus,X,self.b);
-				sampE = sum(bsxfun(@rdivide,sampE.^2,self.sigma2),2)/2;
+				sampE = sum(sampE.^2,2)/2;
 				sampE = sampE - sum(-log(1./(1+exp(H))),2);
 				F = mean(sampE);
 		end

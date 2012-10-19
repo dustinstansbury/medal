@@ -1,6 +1,7 @@
 classdef crbm
 % A convolutional Restricted Boltzmann Machine Object
 properties
+	class = 'crbm'
 	type = 'BB'
 	X
 	nObs
@@ -18,7 +19,7 @@ properties
 	visI
 	ePool
 	visFun = [];
-	nEpoch
+	nEpoch = 10;
 	nFeats = 12;
 	featSize = [7 7];
 	poolSize = [2 2];
@@ -85,7 +86,6 @@ methods
 				sumErr = self.accumErr(X,sumErr);
 				if ~isempty(self.visFun) && ~mod(dCount,self.displayEvery);
 					self.visLearning();
-					self.printProgress(sumErr,iE,jV);
 				end
 
 				if self.verbose && ~mod(dCount,self.displayEvery);
@@ -140,12 +140,11 @@ methods
 		dc = squeeze(sum(sum(self.eHid0 - self.eHid)));
 	end
 
-	function self = runGibbs(self,X,nGibbs)
-		if notDefined('nGibbs'), nGibbs = self.nGibbs; end
+	function self = runGibbs(self,X)
 		
 		% INITIAL PASS
 		[self,self.eHid0] = self.hidGivVis(X);
-		for iC = 1:nGibbs
+		for iC = 1:self.nGibbs
 			% RECONSTRUCT VISIBLES
 			self = self.visGivHid(self.drawBernoulli(self.eHid));
 			% FINISH CD[n]
@@ -155,12 +154,11 @@ methods
 	
 	function self = applyGradients(self,dW,db,dc)
 		[self.W,self.dW] = self.updateParams(self.W,dW,self.dW,self.wPenalty);
-		[self.b,self.db] = self.updateParams(self.b,db,self.db);
-		[self.c,self.dc] = self.updateParams(self.c,dc,self.dc);
+		[self.b,self.db] = self.updateParams(self.b,db,self.db,0);
+		[self.c,self.dc] = self.updateParams(self.c,dc,self.dc,0);
 	end
 
 	function [params,grad] = updateParams(self,params,grad,gradPrev,wPenalty)
-		if notDefined('wPenalty'), wPenalty = 0;end
 		
 		grad = self.momentum*gradPrev + (1-self.momentum)*grad;
 		params = params + self.eta*(grad - wPenalty*params);
@@ -168,8 +166,6 @@ methods
 
 	function [self,eHid] = hidGivVis(self,vis)
 	% CALCULATE HIDDEN EXPECTATIONS GIVEN VISIBLE UNITS
-		if notDefined('vis'), vis = self.eVis; end
-
 		for iK = 1:self.nFeats
 			self.hidI(:,:,iK) = exp(conv2(vis,self.ff(self.W(:,:,iK)),'valid')+self.c(iK));
 		end
@@ -177,9 +173,8 @@ methods
 		self.eHid = eHid;
 	end
 
-	function self = visGivHid(self,hid)
+	function self = visGivHid(self,hid)  
 	% CALCULATE VISIBLE EXPECTATIONS GIVEN EACH HIDDEN FEATURE MAP
-		if notDefined('hid'),hid = self.eHid; end
 		for iK = 1:self.nFeats
 			self.visI(:,:,iK) = conv2(hid(:,:,iK),self.W(:,:,iK),'full');
 		end
@@ -192,7 +187,7 @@ methods
 		return
 	end
 	
-	function self = poolGivVis(self,vis)
+	function self = poolGivVis(self,vis) % (FOR SAMPLING & DBNs -- NOT CURRENTLY USED)
 	% CALCULATE POOLING LAYER EXPECTATIONS GIVEN VISIBLES
 		I = zeros(self.hidSize(1),self.hidSize(2),self.nFeats);
 		for iK = 1:self.nFeats
@@ -215,7 +210,7 @@ methods
 				cols = (jC-1)*pCols+1:jC*pCols;
 				% MAIN POOLING
 				blockVal = squeeze(sum(sum(I(rows,cols,:))));
-				blocks(rows,cols,:)= repmat(permute(blockVal, ...
+				blocks(rows,cols,:) = repmat(permute(blockVal, ...
 				 [2,3,1]),numel(rows),numel(cols));
 			end
 		end
@@ -300,7 +295,7 @@ methods
 	end
 
 	function p = drawMultinomial(self,p); % (UNUSED)
-		p=mnrnd(1,p,1);
+		p = mnrnd(1,p,1);
 	end
 
 	function p = drawNormal(self,mu,sigma2); % (UNUSED)

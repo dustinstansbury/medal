@@ -1,22 +1,23 @@
-function demoGB(test);
+function r = demoGB(test);
 
-if notDefined('test'), test='classifier'; end
+if notDefined('test'), test='patches'; end
 
 switch test
 case {'patches','grayPatches'}
-	load('patchDataGray-Whitened.mat');
-	P = P';
+	load('patchData_16x16.mat','whitendata','invpcatransf');
 	args = {'type','GB', ...
 			'eta',.001, ...
 			'batchSz',100, ...
 			'nEpoch',1000, ...
 			'nHid',200, ...
-			'learnSigma2',0 ...
 			'sampleVis',0, ...
 			'sparse',0.002, ...
-			'nEpoch', 20};
+			'nEpoch',10};
 
-	clear r;  r = rbm(args,P);r = r.train;
+	clear r;  r = rbm(args,whitendata);
+	r.auxVars.invXForm = single(invpcatransf); % FOR VISUALIZATION
+	r = r.train;
+	
 case 'faces'
 	fprintf('\nHere we train an RBM with Gaussian visible and Bernouilli')
 	fprintf('\nhidden units on a dataset of grayscale face images.\n\n');

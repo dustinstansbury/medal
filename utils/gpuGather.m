@@ -9,6 +9,7 @@ function m = gpuGather(m)
 
 f = fields(m);
 
+
 for iF = 1:numel(f)
 	if strcmp(class(m.(f{iF})),'parallel.gpu.GPUArray')
 		m.(f{iF}) = gather(m.(f{iF}));
@@ -24,12 +25,7 @@ for iF = 1:numel(f)
 						end
 					end
 				catch
-					cnt = cnt+1;
 				end
-			end
-%  			 (ASSUME NO MORE THAN 10 LAYERS TO SAVE UNEEDED LOOPS)
-			if cnt > 10  % BIT OF A HACK
-				break
 			end
 		elseif isstruct(m.(f{iF}))
 			ff = fields(m.(f{iF}));
@@ -40,7 +36,6 @@ for iF = 1:numel(f)
 					end
 				end
 			catch
-				cnt = cnt+1;
 			end
 		end
 		

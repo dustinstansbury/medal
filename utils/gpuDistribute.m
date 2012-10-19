@@ -40,7 +40,7 @@ try
 			switch m.class
 			case 'rbm'
 				if strcmp(lower(m.type),'gb')
-					m.sigmaX = gpuArray(single(m.sigmaX));
+					m.sigma2 = gpuArray(single(m.sigma2));
 				end
 
 
@@ -51,7 +51,7 @@ try
 				m.eHid = gpuArray(single(m.eHid));
 				m.eHid0 = gpuArray(single(m.eHid0));
 				m.ePool = gpuArray(single(m.ePool));
-				m.hidI = gpuArray(singl(m.hidI));
+				m.hidI = gpuArray(single(m.hidI));
 				m.visI = gpuArray(single(m.visI));
 
 			case 'mlnn'
@@ -63,7 +63,6 @@ try
 	end
 
 catch
-	keyboard
-	fprintf('\nNo CUDA Capability on current host.');
+	fprintf('\nNo CUDA Capability on current host.\n');
 	m.useGPU = 0;
 end
