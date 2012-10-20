@@ -1,46 +1,51 @@
-function [] = visPatchearning(RBM,iE,jB);
+function [] = visPatchLearning(RBM,iE,jB);
 %-----------------------------------------
 %  [] = visPatchLearning(RBM,jB,iE,rotFlag);
 %-----------------------------------------
 % DES
 
-if notDefined('iE'),	iE = numel(RBM.e); end
+if RBM.useGPU
+	RBM = gpuGather(RBM);
+end
 
-keyboard
-nVis = floor(sqrt(size(RBM.W,1))).^2;
+if notDefined('iE'),iE = numel(RBM.e); end
 
-wLims = [min(RBM.W(:)),max(RBM.W(:))];
+if isfield(RBM.auxVars,'invXForm');
+	invXForm = RBM.auxVars.invXForm;
+else
+	invXForm = eye(size(RBM.W,1));
+end
+
+nVis = floor(sqrt(size(RBM.W/3,2))).^2;
 
 subplot(331);
-visWeights((RBM.X(RBM.batchIdx{jB},:)'));
+visPatches(RBM.X(RBM.batchIdx{jB},:)',invXForm);
 title('Batch Data');
 
 subplot(332);
-visWeights((RBM.pVis(:,1:nVis)'));
+visPatches(RBM.pVis',invXForm);
 title('Fantasies');
 
 
 subplot(333);
-visWeights(RBM.dW(1:nVis,:),0,[]);
+visPatches(RBM.dW(:,1:nVis),invXForm);
 title ('Weight Gradients');
 
-
 subplot(334);
-visWeights((RBM.b(1:nVis)'));
+hist(RBM.b);
 title('Visible Bias');
 
-
-subplot(335)
-visWeights((RBM.sigma2(:,1:nVis)'));
-title('Visible Variance');
+subplot(335);
+hist(RBM.aHid(:));
+title(sprintf('E[hid]=%1.2f\nTarget Sparsity =%0.4f',mean(RBM.aHid(:)),RBM.sparsity))
 
 subplot(336);
-visWeights((RBM.W(1:nVis,:)),0,[]);
-title('Connection Weights');
+visPatches(RBM.W(:,1:nVis),invXForm);
+title('Basis/Connection Weights');
 
 
 subplot(337);
-plot(RBM.e(1:iE));
+plot(RBM.log.err(1:iE));
 title('Reconstruction errors');
 
 subplot(338)
@@ -48,7 +53,7 @@ hist(RBM.W(:));
 title('Connection Weights');
 
 subplot(339);
-semilogy(RBM.a(1:iE));
+semilogy(RBM.log.eta(1:iE));
 title('Learning Rate');
 
 drawnow

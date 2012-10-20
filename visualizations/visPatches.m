@@ -49,7 +49,7 @@ if notDefined('cLims')cLims = [minW,maxW]; end
 if ~nargout
 	try
 		imagesc(imOut/255); colormap(gray);
-		set(gca,'clim',cLims)
+%  		set(gca,'clim',cLims)
 		axis image;
 		axis off;
 	catch

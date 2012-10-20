@@ -30,9 +30,9 @@ properties
 	sigma2 = [];		% VARIANCE OF (G-) UNIT
 	sampleVis = 0;		% SAMPLE THE VISIBLE UNITS
 	sampleHid = 1;		% SAMPLE HIDDEN UNITS 
-	momentum = 0.5;		% MOMENTUM TERM FOR WEIGHT ESTIMATION
+	momentum = 0.2;		% MOMENTUM TERM FOR WEIGHT ESTIMATION
 	nEpoch = 1000;		% # OF FULL PASSES THROUGH TRIANING DATA
-	wPenalty = 0.0002;	% CURRENT WEIGHT PENALTY
+	wDecay = 0.0002;	% CURRENT WEIGHT PENALTY
 	sparsity = 0;		% SPARSENESS FACTOR
 	sparseFactor=5;		% x LEARNING RATE FOR SPARSITY
 	batchSz = 100;		% # OF TRAINING POINTS PER BATCH
@@ -82,7 +82,7 @@ methods
 
 			% (LINEAR) SIMULATED ANNEALING
 			if self.anneal
-				self.wPenalty = self.wPenalty/max(1,iE/self.anneal);
+				self.wDecay = self.wDecay/max(1,iE/self.anneal);
 			end
 
 			% LOOP OVER BATCHES
@@ -232,7 +232,7 @@ methods
 		case 'BB'
 			dW=(X'*self.pHid0 - self.aVis'*self.pHid)/nObs;
 			self.dW=self.momentum*self.dW + (1-self.momentum)*dW;
-			self.W = self.W + self.eta*self.dW - self.wPenalty*abs(self.W); 
+			self.W = self.W + self.eta*self.dW - self.wDecay*self.W; 
 
 			db = mean(X) - mean(self.pVis);
 			self.db = self.momentum*self.db + self.eta*db;
@@ -246,7 +246,7 @@ methods
 		case 'GB'
 			% CONNECTION WEIGHTS
 			dW=bsxfun(@rdivide,(X'*self.pHid0 - self.aVis'*self.pHid),nObs');
-			self.dW=self.momentum*self.dW + self.eta*dW*(1-self.momentum) - self.wPenalty*abs(self.W);
+			self.dW=self.momentum*self.dW + self.eta*dW*(1-self.momentum) - self.wDecay*self.W;
 			self.W = self.W + self.dW;
 
 			% VISIBLE BIASES
