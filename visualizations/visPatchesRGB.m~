@@ -5,6 +5,10 @@ function imOut = visPatchesRGB(W, invXForm, transIms, cLims)
 if notDefined('invXForm'); invXForm = eye(size(W,1)); end
 borderPix = 1;
 
+if strcmp(class(W),'parallel.gpu.GPUArray')
+	W = gather(W);
+end
+
 W = invXForm * W;
 
 minW=min(W(:));
