@@ -9,6 +9,7 @@ nHid = 500;
 
 % DEFINE SINGLE-LAYERED ARCHITECTURE
 arch.size = [nIn nHid];
+arch.actFun = {'sigmoid','sigmoid'}; % ALL SIGMOIDS
 arch.lRate = [.1 .1];
 
 % TRAINING OPTIONS	

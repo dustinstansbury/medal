@@ -5,23 +5,16 @@ function imOut = visPatchesRGB(W, invXForm, transIms, cLims)
 if notDefined('invXForm'); invXForm = eye(size(W,1)); end
 borderPix = 1;
 
-<<<<<<< HEAD
 W = gather(invXForm * W);
-=======
-W = invXForm * W;
->>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 
 minW=min(W(:));
 maxW=max(W(:));
 
 [nDim,nUnits]=size(W);
 
-<<<<<<< HEAD
 % NORMALIZE BY L2 NORM (BOOST CONTRAST)
 W = bsxfun(@rdivide,W,sqrt(dot(W,W)/nDim + .5));
 
-=======
->>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 nDPix = floor(sqrt(nDim/3)+0.999);
 nCols = floor(sqrt(nUnits)+0.999);
 
@@ -41,11 +34,7 @@ try
 	end;
 catch % IF ALL ELSE FAILS, JUST SHOW THE WEIGHTS
 	fprintf('\nVisualization failed, displaying weights...\n')
-<<<<<<< HEAD
 	imOut = W;
-=======
-	imOut = W
->>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 end
 if notDefined('cLims'),cLims = [minW,maxW]; end
 
@@ -53,13 +42,8 @@ imOut = imOut/255;
 
 if ~nargout
 	try
-<<<<<<< HEAD
 		imshow(double(imOut));
 %  		set(gca,'clim',cLims);
-=======
-		imagesc(imOut);
-		set(gca,'clim',cLims);
->>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 		axis image;
 		axis off;
 	catch
