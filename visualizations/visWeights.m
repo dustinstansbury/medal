@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 function imOut = visWeights(W, transIms, cLims, sortNorms, nShow, borderPix)
 %  imOut = visWeights(W, transIms, cLims, sortNorms, borderPix,nShow)
 %-------------------------------------------------------------------
@@ -26,6 +27,26 @@ minW=min(W(:));
 maxW=max(W(:));
 
 if numel(cLims) < 2,cLims = [minW,maxW]; end
+=======
+function imOut = visWeights(W, transIms, cLims, sortNorms, borderPix)
+%  imOut = visWeights(W, transIms, cLims, sortNorms, borderPix)
+%-------------------------------------------------------------------
+
+if notDefined('sortNorms');	sortNorms = 0; end
+if notDefined('transIms'); transIms = 0; end
+if notDefined('borderPix'); borderPix = 1; end
+
+if sortNorms
+    wNorm = sum(W.^2,1)/size(W,1);
+    [foo,sortIdx] = sort(wNorm,'descend');
+    W = W(:,sortIdx);
+end
+
+minW=min(W(:));
+maxW=max(W(:));
+
+if notDefined('cLims')cLims = [minW,maxW]; end
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 
 [nDim,nUnits]=size(W);
 
@@ -54,13 +75,21 @@ try
 		    = reshape(W(:,iW),nDPix,nDPix);
 	    end
 	end;
+<<<<<<< HEAD
 catch % IF ALL FAILS, JUST SHOW THE WEIGHTS
+=======
+catch % IF ALL ELSE FAILS, JUST SHOW THE WEIGHTS
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 	imOut = W;
 end
 imagesc(imOut); colormap(gray);
 try
 	set(gca,'clim',cLims)
 catch
+<<<<<<< HEAD
+=======
+
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 end
 axis image;
 axis off;

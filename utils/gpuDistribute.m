@@ -9,6 +9,7 @@ try
 	d = gpuDevice;
 	if d.DeviceSupported
 		m.gpuDevice = d;
+<<<<<<< HEAD
 		
 		try
 			switch m.class
@@ -53,6 +54,38 @@ try
 					m.dc = gpuArray(single(m.dc));
 				m.log.err = gpuArray(single(m.log.err));
 				m.log.eta = gpuArray(single(m.log.eta));
+=======
+
+		switch m.class
+		case 'mlnn'
+			for iL = 1:numel(m.layers)
+				m.layers{iL}.W = gpuArray(single(m.layers{iL}.W));
+				m.layers{iL}.dW = gpuArray(single(m.layers{iL}.dW));
+				m.layers{iL}.bias = gpuArray(single(m.layers{iL}.bias));
+				m.layers{iL}.dBias = gpuArray(single(m.layers{iL}.dBias));
+			end
+			m.X = gpuArray(single(m.X));
+			m.trainError = gpuArray(single(m.trainError));
+			m.xValError = gpuArray(single(m.xValError));
+			m.netOutput = gpuArray(m.netOutput);
+
+		otherwise
+			% GENERAL INITIALIZATIONS
+			m.X = gpuArray(single(m.X));
+			m.W = gpuArray(single(m.W));
+			m.dW = gpuArray(single(m.dW));
+			m.b = gpuArray(single(m.b));
+			m.db = gpuArray(single(m.db));
+			m.c = gpuArray(single(m.c));
+			m.dc = gpuArray(single(m.dc));
+			m.log.err = gpuArray(single(m.log.err));
+			m.log.eta = gpuArray(single(m.log.eta));
+
+
+			% CLASS-SPECIFIC INITS
+			switch m.class
+			case 'rbm'
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 				if strcmp(lower(m.type),'gb')
 					m.sigma2 = gpuArray(single(m.sigma2));
 				end
@@ -60,7 +93,11 @@ try
 
 			case 'rbmClassifier'
 
+<<<<<<< HEAD
 			case 'crbm' % CONVLUTIONAL RBM
+=======
+			case 'crbm'
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 				m.eVis = gpuArray(single(m.eVis));
 				m.eHid = gpuArray(single(m.eHid));
 				m.eHid0 = gpuArray(single(m.eHid0));
@@ -68,6 +105,7 @@ try
 				m.hidI = gpuArray(single(m.hidI));
 				m.visI = gpuArray(single(m.visI));
 
+<<<<<<< HEAD
 			otherwise  % GENERAL DATASTRUCT (E.G. TEMP VARIABLES)
 				fprintf('Unkown model type.')
 			end
@@ -78,6 +116,10 @@ try
 					m.(f{iF}) = gpuArray(single(m.(f{iF})));
 				catch
 				end
+=======
+			case 'mlnn'
+
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 			end
 		end
 	else
@@ -87,6 +129,9 @@ try
 catch
 	fprintf('\nNo CUDA Capability on current host.\n');
 	m.useGPU = 0;
+<<<<<<< HEAD
 	reset(m.gpuDevice);
 	m.gpuDevice = [];
+=======
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 end

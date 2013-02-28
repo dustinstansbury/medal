@@ -16,7 +16,11 @@ else
 	invXForm = eye(size(RBM.W,1));
 end
 
+<<<<<<< HEAD
 nVis = min(64,floor(sqrt(size(RBM.W/3,2))).^2);
+=======
+nVis = floor(sqrt(size(RBM.W/3,2))).^2;
+>>>>>>> 87b603f3cd257a31f0e649b9a1e396cabf5c6014
 
 subplot(331);
 visPatches(RBM.X(RBM.batchIdx{jB},:)',invXForm);
