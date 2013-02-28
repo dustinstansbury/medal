@@ -14,8 +14,8 @@ nHid = 100;
 arch.size = [nIn nHid nOut];
 arch.actFun = {'sigmoid'}; % ALL SIGMOIDS
 arch.lRate = [.1 .01];
-arch.opts = {'costFun','xent', ...
-             'visFun', @visMLNNLearning};
+arch.opts = {'costFun','xent'};%, ...
+%               'visFun', @visMLNNLearning};
 
 % INITIALIZE NETWORK
 net1 = mlnn(arch);
@@ -30,8 +30,8 @@ arch2 = arch;
 arch2.size = [nIn nHid nHid nOut];
 arch2.lRate = [.1 .1 .1];
 arch2.opts = {'nEpoch',20, ...
-              'costFun','xent', ...
-              'visFun', @visMLNNLearning};
+              'costFun','xent'};%, ...
+%                'visFun', @visMLNNLearning};
 % INITIALIZE NETWORK
 net2 = mlnn(arch2);
 
