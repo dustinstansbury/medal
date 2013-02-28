@@ -12,8 +12,8 @@ nHid = 100;
 
 % DEFINE ARCHITECTURE
 arch.size = [nIn nHid nHid nOut];
-arch.lRate = [.1 .1 .1];
-arch.nEpoch = [20 20 20];
+arch.lRate = [.01 .01 .01];
+arch.nEpoch = [50 20 20];
 
 % INITIALIZE DAE
 d = dae(arch);
