@@ -7,37 +7,3 @@ function m = gpuGather(m)
 %---------------------------------------------------------------------------
 % DES
 
-f = fields(m);
-
-
-for iF = 1:numel(f)
-	if strcmp(class(m.(f{iF})),'parallel.gpu.GPUArray')
-		m.(f{iF}) = gather(m.(f{iF}));
-	else
-		if iscell(m.(f{iF}))
-			cnt = 1;
-			for jL = 1:numel(m.(f{iF}))
-				try
-					ff = fields(m.(f{iF}){jL});
-					for kF = 1:numel(ff)
-						if strcmp(class(m.(f{iF}){jL}.(ff{kF})),'parallel.gpu.GPUArray'),
-							m.(f{iF}){jL}.(ff{kF}) = gather(m.(f{iF}){jL}.(ff{kF}));
-						end
-					end
-				catch
-				end
-			end
-		elseif isstruct(m.(f{iF}))
-			ff = fields(m.(f{iF}));
-			try
-				for kF = 1:numel(ff)
-					if strcmp(class(m.(f{iF}).(ff{kF})),'parallel.gpu.GPUArray'),
-						m.(f{iF}).(ff{kF}) = gather(m.(f{iF}).(ff{kF}));
-					end
-				end
-			catch
-			end
-		end
-		
-	end
-end
