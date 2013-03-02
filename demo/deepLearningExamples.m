@@ -34,6 +34,7 @@ function deepLearningExamples(type)
 %    'all'          -- Run all demos in sequence
 %------------------------------------------------------------------------------
 % DES    
+% stan_s_bury@berkeley.edu
 
 if notDefined('type'), type = 'all'; end
 
