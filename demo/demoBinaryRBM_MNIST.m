@@ -30,7 +30,8 @@ r = rbm(arch);
 % TRAIN THE RBM
 r = r.train(trainData,single(trainLabels));
 
-[classErr,misClass] = r.classify(testData, single(testLabels));
+[~,classErr,misClass] = r.classify(testData, single(testLabels));
+
 
 misClass = testData(misClass,:);
 clf; visWeights(misClass',0,[0 1]); title(sprintf('Missclassified -- Error=%1.2f %%',classErr*100));

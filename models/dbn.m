@@ -85,33 +85,43 @@ methods
 		outProb = layerOut.pHid;
 	end
 
-	function [error,misClass,pred] = classify(self,X,targets)
-	% CLASSIFY (DEVO)
-
-		if isvector(targets);
-			targets = self.oneOfK(targets);
+	function [pred,error,misClass] = classify(self,X,targets)
+	% CLASSIFY
+	
+		if notDefined('targets')
+			targets = []; 
+		else
+			if isvector(targets);
+				targets = self.oneOfK(targets);
+			end
 		end
-
-		[nObs,nClass] = size(targets);
+		
+		% PROPAGATE DATA SIGNALS UP
+		for iL = 1:self.nRBMLayers-1
+			X = self.rbmLayers{iL}.hidExpect(X);
+		end
 		
 		% CALCULATE TOP LAYER ACTIVATIONS
-		[~,~,tmp] = self.fProp(X,targets);
-
+		nClasses = self.rbmLayers{end}.nClasses;
+		tmp = self.rbmLayers{end}.hidGivVis(X,zeros(size(X,1),nClasses),1);
+		
 		% CALCULATE CLASS PROBABILITY
 		pClass = tmp.softMax(bsxfun(@plus,tmp.aHid*tmp.classW',tmp.d));
 		
 		% WINNER-TAKE-ALL CLASSIFICATION
 		[~, pred] = max(pClass,[],2);
 
-		[~,targets] = max(targets,[],2);
+		if ~notDefined('targets') && nargout > 1
+			[~,targets] = max(targets,[],2);
 
-		% CALCULATE MISSCLASSIFICATION RATE
-		misClass = find(pred~=targets);
-		error = numel(misClass)/nObs;
+			% CALCULATE MISSCLASSIFICATION RATE
+			misClass = find(pred~=targets);
+			error = numel(misClass)/size(X,1);
+		end
 	end
 
 	function self = init(self,arch)
-	% INITIALIZE DEEP AUTOENCODER
+	% INITIALIZE DEEP BELIEF NETWORK
 	% <arch> IS AN ARCHTIECTURE STRUCT WITH THE FIELDS:
 	%	.shape -- [#INPUT #HID1, ..., #HIDN, #OUT]
 	%	.lRate -- THE LEARNING RATE FOR EACH AE LAYER
@@ -163,7 +173,6 @@ methods
 		if ~isstruct(arch),arch.size = arch; end
 
 		nLayers = numel(arch.size);
-
 		
 		% CHECK # EPOCHS
 		if ~isfield(arch,'nEpoch')

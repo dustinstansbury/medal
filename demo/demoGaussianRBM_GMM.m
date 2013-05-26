@@ -19,7 +19,7 @@ arch.opts = opts;
 clear r;
 r = rbm(arch);
 r = r.train(trainData,labels);
-[classError,misClass,pred] = r.classify(testData,testlabels);
+[pred,classError,misClass] = r.classify(testData,testlabels);
 
 clf;
 scatter(testData(:,1),testData(:,2),[],pred,'.'); colormap lines(3)

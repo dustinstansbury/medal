@@ -547,29 +547,34 @@ methods
 		end
 	end
 	
-	function [error,misClass,pred] = classify(self,X,targets)
-	% CLASSIFY (DEVO)
+	function [pred,error,misClass] = classify(self,X,targets)
+	% CLASSIFY
 	
-		if isvector(targets);
-			targets = self.oneOfK(targets);
+		if notDefined('targets'),
+			targets = [];
+		else
+			if isvector(targets);
+				targets = self.oneOfK(targets);
+			end
 		end
 		
-		[nObs,nClass] = size(targets);
+		nObs = size(X,1);
 		
-		% ACTIVATE HIDDEN UNITS USING INPUT AND TARGETS 
-		tmp = self.hidGivVis(X,targets,1);
-
+		% ACTIVATE HIDDEN UNITS USING INPUT ONLY
+		pHid = self.sigmoid(bsxfun(@plus,X*self.W,self.c));
+		
 		% CALCULATE CLASS PROBABILITY
-		pClass = self.softMax(bsxfun(@plus,tmp.aHid*self.classW',self.d));
+		pClass = self.softMax(bsxfun(@plus,pHid*self.classW',self.d));
 
 		% WINNER-TAKE-ALL CLASSIFICATION
 		[~, pred] = max(pClass,[],2);
+		if ~notDefined('targets') && nargout > 1
+			[~,targets] = max(targets,[],2);
 
-		[~,targets] = max(targets,[],2);
-
-		% CALCULATE MISSCLASSIFICATION RATE
-		misClass = find(pred~=targets);
-		error = numel(misClass)/nObs;
+			% CALCULATE MISSCLASSIFICATION RATE
+			misClass = find(pred~=targets);
+			error = numel(misClass)/nObs;
+		end
 	end
 end % END METHODS
 end % END CLASSDEF

@@ -26,7 +26,7 @@ d = dbn(arch);
 fprintf('\n\nTraining a two-layer Deep Belief Network...\n');
 d = d.train(trainData,trainLabels);
 
-[classErr1,misClass] = d.classify(testData,testLabels);
+[~,classErr1,misClass] = d.classify(testData,testLabels);
 fprintf('\nClassification error: %1.2f%%',classErr1*100);
 
 misClass = testData(misClass,:);
