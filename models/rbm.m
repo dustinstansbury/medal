@@ -40,6 +40,7 @@ properties
 	eHid;				% EXPECTATION OF HIDDEN STATE (POST TRAINING)
 	pClass;				% PROBABILITIES OF CLASSIFIER UNITS (.classifier = 1)
 	aClass;				% ACTIVATION OF CLASSIFIER UNITS (.classifier = 1)
+	docLen;				% DOCUMENT LENGTH (MULTINOMIAL INPUTS)	
 	lRate = 0.1;		% DEFAULT LEARNING RATE
 	batchIdx = [];		% BATCH INDICES INTO TRAINING DATA
 	sampleVis = 0;		% SAMPLE THE VISIBLE UNITS
@@ -49,7 +50,7 @@ properties
 	wPenalty = 0;		% CURRENT WEIGHT PENALTY
 	sparsity = 0;		% SPARSENESS FACTOR
 	dropout = 0;		% HIDDEN UNIT DROPOUT
-	sparseGain=5;		% LEARNING RATE GAIN FOR SPARSITY
+	sparseFactor=5;		% LEARNING RATE GAIN FOR SPARSITY
 	batchSz = 100;		% # OF TRAINING POINTS PER BATCH
 	nGibbs = 1;			% CONTRASTIVE DIVERGENCE (1)
 	beginAnneal = Inf;	% # OF EPOCHS TO START SIMULATED ANNEALING
@@ -136,6 +137,10 @@ methods
 					batchTargets = 0;
 				end
 				
+				if strcmp(self.inputType,'multinomial')
+					self.docLen = sum(batchX,2);
+				end
+				
 				self = self.runGibbs(batchX,batchTargets);
 				self = self.updateParams(batchX,batchTargets);
 				sumErr = self.accumErr(batchX,sumErr);
@@ -152,7 +157,7 @@ methods
 
 			% SPARSITY
 			if self.sparsity
-				dcSparse = -self.lRate*self.sparseGain*(mean(self.pHid)-self.sparsity);
+				dcSparse = -self.lRate*self.sparseFactor*(mean(self.pHid)-self.sparsity);
 				self.c = self.c + dcSparse;
 			end
 			
@@ -190,35 +195,40 @@ methods
 	% MAIN GIBBS SAMPLER
 		nObs = size(X,1);
 		iC = 1;
+		% GO UP
+		self = self.hidGivVis(X,targets,1);
+		% LOG INITIAL STATES FOR GRADIENT CALCULATION
+		self.pHid0 = self.pHid;
+		self.aHid0 = self.aHid;
 		while 1
-			% GO UP
-			if iC == 1
-				self = self.hidGivVis(X,targets,1);
-				% LOG INITIAL STATES FOR GRADIENT CALCULATION 
-				self.pHid0 = self.pHid;
-				self.aHid0 = self.aHid;
-			else
-				self = self.hidGivVis(X,targets,0);
-			end
 			% GO DOWN
 			self = self.visGivHid(self.aHid,self.sampleVis);
 			X = self.aVis;
-		
-			% FINISH 
+
+			% GO BACK UP
 			if iC >= self.nGibbs
 				self = self.hidGivVis(self.aVis,targets,0);
 				break
+			else
+				self = self.hidGivVis(self.aVis,targets,1);
 			end
 			iC = iC + 1;
 		end
 	end
 
 	function self = hidGivVis(self,X,targets,sampleHid)
-	% p(H|V), SAMPLE H, IF NEEDED
+	% p(H|V)
+		hidBias = self.c;
+		if strcmp(self.inputType,'multinomial')
+			% WEIGHT BIASES BY DOCUMENT LENGTH
+			hidBias = bsxfun(@times,self.docLen,hidBias);
+		end
+		
 		if self.classifier
-			pHid = self.sigmoid(bsxfun(@plus,X*self.W + targets*self.classW ,self.c));
+			% JOINTLY MODEL MULTINOMIAL OVER INPUT CLASSES
+			pHid = self.sigmoid(bsxfun(@plus,X*self.W + targets*self.classW ,hidBias));
 		else
-			pHid = self.sigmoid(bsxfun(@plus,X*self.W, self.c));
+			pHid = self.sigmoid(bsxfun(@plus,X*self.W, hidBias));
 		end
 
 		if sampleHid
@@ -256,6 +266,15 @@ methods
 				else
 					self.aVis = mu;
 				end
+				
+			case 'multinomial'
+				pVis = self.softMax(bsxfun(@plus,aHid*self.W',self.b));
+				self.aVis = zeros(size(pVis));
+				for iO  = 1:nObs
+					% DRAW D SEPARATE MULTINOMIALS FOR EACH INPUT
+					self.aVis(iO,:) = mnrnd(self.docLen(iO),pVis(iO,:));
+				end
+				self.pVis = pVis;
 		end
 
 		if self.classifier
@@ -275,10 +294,10 @@ methods
 		self.W = self.W + self.lRate*self.dW;
 
 		db = mean(X) - mean(self.pVis);
+		dc = mean(self.pHid0) - mean(self.pHid);
 		self.db = self.momentum*self.db + self.lRate*db;
 		self.b = self.b + self.db;
 
-		dc = mean(self.pHid0) - mean(self.pHid);
 		self.dc = self.momentum*self.dc + self.lRate*dc;
 		self.c = self.c + self.dc;
 
@@ -327,7 +346,7 @@ methods
 			self.W = (2/(self.nHid+self.nVis))*rand(self.nVis,self.nHid) - ...
 			1/(self.nVis + self.nHid);
 			
-		case 'binary'
+		case {'binary','multinomial'}
 			self.W = 1/sqrt(self.nVis +  self.nHid)* ...
 			2*(rand(self.nVis,self.nHid)-.5);
 		end
@@ -422,7 +441,7 @@ methods
 		
 		if isempty(self.visFun)
 			switch self.inputType
-				case 'binary'
+				case {'binary','multinomial'}
 					visBinaryRBMLearning(self);
 				case 'gaussian'
 					visGaussianRBMLearning(self);
@@ -450,10 +469,11 @@ methods
 	function E = hidExpect(self,X);
 	% CALCULATE HIDDEN UNIT EXPECTATIONS
 		switch self.inputType
-		case 'binary'
+		case 'multinomial'
+			docLen = sum(X,2);
+			E = self.sigmoid(bsxfun(@plus,X*self.W,bsxfun(@times,docLen,self.c)));
+		otherwise
 			E = self.sigmoid(bsxfun(@plus,X*self.W,self.c));
-		case 'gaussian'
-			E = bsxfun(@plus,X*self.W,self.c);
 		end
 	end
 	
@@ -484,6 +504,18 @@ methods
 					self.W',self.b));
 				case 'gaussian'
 					vis = bsxfun(@plus,hid*self.W',self.b);
+					
+				case 'multinomial'
+					vis = bsxfun(@plus,hid*self.W',self.b)
+					pVis = softMax(vis);
+					% ENSURE PDF
+					pVis = bsxfun(@rdivide,eVis,sum(eVis,2));
+					vis = zeros(size(pVis));
+					docLen = sum((find(pVis)),2);
+					for iO  = 1:nObs
+						% DRAW D SEPARATE MULTINOMIALS FOR EACH INPUT
+						vis(iO,:) = mnrnd(docLen(iO),pVis(iO,:));
+					end
 				end
 			end
 			samps(:,:,iS) = vis;
@@ -507,13 +539,14 @@ methods
 				F = mean(sampE);
 			case 'gaussian'
 				H = ones(nSamps,1)*self.c + X*self.W;
-		             
 				H = max(min(H,upBound),loBound);
 				% SAMPLE ENERGIES
 				sampE = bsxfun(@minus,X,self.b);
 				sampE = sum(sampE.^2,2)/2;
 				sampE = sampE - sum(-log(1./(1+exp(H))),2);
 				F = mean(sampE);
+			case 'multinomial'
+				error('need to implement multinomial free energy')
 		end
 	end
 
@@ -547,8 +580,8 @@ methods
 		end
 	end
 	
-	function [pred,error,misClass] = classify(self,X,targets)
-	% CLASSIFY
+	function [error,misClass,pred] = classify(self,X,targets)
+	% CLASSIFY 
 	
 		if notDefined('targets'),
 			targets = [];
@@ -557,12 +590,12 @@ methods
 				targets = self.oneOfK(targets);
 			end
 		end
-		
+
 		nObs = size(X,1);
-		
+
 		% ACTIVATE HIDDEN UNITS USING INPUT ONLY
 		pHid = self.sigmoid(bsxfun(@plus,X*self.W,self.c));
-		
+
 		% CALCULATE CLASS PROBABILITY
 		pClass = self.softMax(bsxfun(@plus,pHid*self.classW',self.d));
 
