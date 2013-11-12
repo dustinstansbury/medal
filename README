@@ -1,8 +1,13 @@
 
 -------------------------------------------------------------------------------
-Matlab Environment for Deep Architecture Learning (MEDAL) - version 0.0
+Matlab Environment for Deep Architecture Learning (MEDAL) - version 0.1
 -------------------------------------------------------------------------------
-Model Modules:
+
+   o   o
+  / \ / \ EDAL
+ o   o   o
+
+Model Objects:
 	mlnn.m        -- Multi-layer neural network
 	mlcnn.m       -- Multi-layer convolutional neural network
 	rbm.m         -- Restricted Boltzmann machine (RBM)
@@ -12,6 +17,7 @@ Model Modules:
 	crbm.m        -- Convolutional RBM
 	ae.m          -- Shallow autoencoder 
 	dae.m         -- Deep Autoencoder 
+	
 -------------------------------------------------------------------------------
 To begin type:
 
@@ -19,7 +25,7 @@ To begin type:
 
 in the medal directory
 
-To get an idea of how the model modules work, check out the demo script:
+To get an idea of how the model objects work, check out the demo script:
 
 >> deepLearningExamples('all')
 
@@ -46,7 +52,7 @@ References:
  Hinton, G. E. and Salakhutdinov, R. R "Reducing the dimensionality of data with
  neural networks." Science, Vol. 313. no. 5786, pp. 504 - 507, 28 July 2006.
 
- Pascal, V. et al. “Stacked denoising autoencoders: Learning useful
+*Pascal, V. et al. “Stacked denoising autoencoders: Learning useful
  representations in a deep network with a local denoising criterion.“ The
  Journal of Machine Learning Research 11:3371-3408. 2010
 
@@ -68,6 +74,12 @@ References:
 *Convolutional RBMs:
  Lee, H. et al. “Convolutional deep belief networks for scalable unsupervised
  learning of hierarchical representations.”, ICML 2009
+
+*Rectified Linear Units
+ Nair V., Hinton GE. (2010) Rectiﬁed Linear Units Improve Restricted Boltzmann Machines. IMCL 2010.
+
+ Glorot, X. Bordes A. & Bengio Y. (2011). "Deep sparse rectifier neural 
+ networks". AISTATS 2011.
 
 *Dropout Regularization:
  Hinton GE et al. Technical Report, Univ. of Toronto, 2012.

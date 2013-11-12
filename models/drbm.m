@@ -21,7 +21,6 @@ properties
 	nVis 					% # OF VISIBLE UNITS (DIMENSIONS)
 	nHid 					% # OF HIDDEN UNITS
 	nT						% ORDER OF MODEL (# FRAMES BACK)
-
 	% MODEL PARAMETERS
 	W						% CONNECTION WEIGHTS
 	dW 						% LEANING INCREMENT FOR CONN. WEIGHTS
@@ -35,15 +34,12 @@ properties
 	c 						% STATIC HIDDEN UNIT BIASES
 	dc 						% LEARNING INCREMENT FOR HID. BIAS
 	cStar					% DYNAMIC HIDDEN BIASES
-
 	% MODEL STATES
 	aVis 					% VISIBLE LAYER ACTIVATIONS
-	pVis 					% VISIBLE LAYER PROBS
 	aHid 					% HIDDEN LAYER ACTIVATION
 	pHid 					% HIDDEN LAYER PROBS
 	pHid0 					% INITIAL HIDDEN LAYER PROBS
 	aHid0 					% INITIAL HIDDEN LAYER ACTIVATION
-
 	% (DEFAULT) LEARNING PARAMETERS
 	lRate = 1e-3;			% LEARNING RATE
 	sampleVis = 0;			% SAMPLE THE VISIBLE UNITS
@@ -57,34 +53,50 @@ properties
 	nGibbs = 1;				% CONTRASTIVE DIVERGENCE
 	beginWeightDecay=Inf;	% # OF EPOCHS TO BEGIN WEIGHT DECAY
 	beginAnneal=Inf;		% # OF EPOCHS TO BEGIN SIM. ANNEALING
-
 	% OTHER
+	epoch=1
 	batchIdx 				% MINIBATCH INDICES INTO TRAINING DATA
 	log 					% ERROR AND LEARNING RATE LOGS
 	verbose = 1;			% DISPLAY PROGRESS
 	saveEvery = 0;			% # OF EPOCHS TO SAVE INTERMEDIATE MODELS
-	displayEvery=500;		% # WEIGHT UPDATES TO VISUALIZE LEARNING
+	displayEvery=realmax;		% # WEIGHT UPDATES TO VISUALIZE LEARNING
 	visFun 					% USER-DEFINED FUNCTION ('@myFun')
 	auxVars 	 			% AUXILLARY VARIABLES, JUST IN CASE
 	useGPU = 0; 			% USE CUDA, IF AVAILABLE
 	gpuDevice 				% GPU DEVICE STRUCTURE
-	saveFold='./drbmSave';	% # DEFAULT SAVE FOLDDER
+	saveFold;				% # DEFAULT SAVE FOLDDER
 		
 end % END PROPERTIES
 
 methods
-	% CONSTRUCTOR
+	
 	function self = drbm(arch)
+	% r = drbm(arch)
+	%--------------------------------------------------------------------------
+	% Constructor method
+	%--------------------------------------------------------------------------
 		self = self.init(arch);
 	end
 
 	function [] = print(self)
+	%print(arch)
+	%--------------------------------------------------------------------------
+	% Print drbm attributes
+	%--------------------------------------------------------------------------
 		properties(self)
 		methods(self)
 	end
 	
 	function self = train(self,X)
-	% MAIN
+	% self = train(X)
+	%--------------------------------------------------------------------------
+	% Train a dynamic/conditional RBM using Contrastive Divergence
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%        <X>:  - to-be modeled data |X| = [#Frames x #XVis]
+	% OUTPUT:
+	%     <self>:  - trained RBM object.
+	%--------------------------------------------------------------------------
 		wPenalty = self.wPenalty;
 		[~,nFrames] = size(X);
 		
@@ -97,17 +109,16 @@ methods
 		
 		dCount = 1;
 		mCount = 1;
-		iE = 1;
 		while 1
 			sumErr = 0;
 
 			% BEGIN SIMULATED ANNEALING?
-			if iE >= self.beginAnneal
-				self.lRate = max(1e-10,self.lRate/max(1,iE/self.beginAnneal));
+			if self.epoch >= self.beginAnneal
+				self.lRate = max(1e-10,self.lRate/max(1,self.epoch/self.beginAnneal));
 			end
 			
 			% BEGIN WEIGHT DECAY?
-			if iE >= self.beginWeightDecay
+			if self.epoch >= self.beginWeightDecay
 				self.wPenalty = wPenalty;
 			else
 				self.wPenalty = 0;
@@ -126,15 +137,15 @@ methods
 				end
 
 				self = self.composeBiases(batchX);
-				self = self.runGibbs(batchX(:,:,1),self.nGibbs);
+				self = self.runGibbs(batchX(:,:,1));
 				self = self.updateParams(batchX);
 				batchErr = self.batchError(batchX(:,:,1));
 				sumErr = sumErr + batchErr;
 				
 				if ~isempty(self.visFun) & ~mod(dCount,self.displayEvery);
 					self.auxVars.batchX = squeeze(batchX	);
-					self.auxVars.error = self.log.err(1:max((iE-1),1));
-					self.auxVars.lRate = self.log.lRate(1:max((iE-1),1));
+					self.auxVars.error = self.log.err(1:max((self.epoch-1),1));
+					self.auxVars.lRate = self.log.lRate(1:max((self.epoch-1),1));
 					self.visLearning;
 				end
 				dCount = dCount+1;
@@ -146,15 +157,17 @@ methods
 				self.c = self.c + dcSparse;
 			end
 			
-			self.log.err(iE) = sumErr;
-			self.log.lRate(iE) = self.lRate;
+			self.log.err(self.epoch) = sumErr;
+			self.log.lRate(self.epoch) = self.lRate;
 			
-			if self.verbose, self.printProgress(sumErr,iE,jB); end
+			if self.verbose, self.printProgress(sumErr); end
 
 			% SAVE IF NECESSARY
-			if ~mod(iE, self.saveEvery), self.save; end
-			if iE >= self.nEpoch, break; end
-			iE = iE + 1;
+			if ~mod(self.epoch, self.saveEvery) & ~isempty(self.saveFold)
+				self.save; 
+			end
+			if self.epoch >= self.nEpoch, break; end
+			self.epoch = self.epoch + 1;
 		end
 				
 		% PULL DATA FROM GPU, IF NECESSARY
@@ -166,10 +179,21 @@ methods
 		fprintf('\n');
 	end
 
-	function self = runGibbs(self,X,nGibbs)
-	% MAIN GIBBS SAMPLER
+	function self = runGibbs(self,X)
+	% r = runGibbs(X)
+	%--------------------------------------------------------------------------
+	% Draw MCMC samples from the current model via Gibbs sampling.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%       <X>:  - minibatch data.
+	% <targets>:  - possible categorical targets. if no categorization,
+	%               <targets> should be empty ([]).
+	%
+	% OUTPUT:
+	%       <r>:  - dynamic  RBM object with updated states
+	%--------------------------------------------------------------------------
 		nObs = size(X,1);
-		for iC = 1:nGibbs
+		for iC = 1:self.nGibbs
 			% GO UP
 			if iC == 1
 				self = self.hidGivVis(X,1);
@@ -187,7 +211,19 @@ methods
 	end
 
 	function self = hidGivVis(self,X,sampleHid)
-	% p(H|V), SAMPLE H, IF NEEDED
+	% r = hidGivVis(X,[sampleHid])
+	%--------------------------------------------------------------------------
+	% Update hidden unit probabilities and states conditioned on the current
+	% states of the visible units.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%         <X>:  - batch data.
+	% <sampleHid>:  - flag indicating to sample the states of the hidden units.
+	%
+	% OUTPUT:
+	%         <r>:  - dynamic RBM object with updated hidden unit probabilities/
+	%                  states.
+	%--------------------------------------------------------------------------
 		self.pHid = self.sigmoid(bsxfun(@plus,self.W*X',self.cStar));
 		
 		if sampleHid
@@ -198,21 +234,32 @@ methods
 	end
 	
 	function self = visGivHid(self,aHid,sampleVis)
-	% p(V|H)
+	% r = hidGivVis(aHid,[sampleVis])
+	%--------------------------------------------------------------------------
+	% Update visible unit states conditioned on the current states of the hidden 
+	% units.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%      <aHid>:  - current hidden unit states (activations)
+	% <sampleVis>:  - flag indicating to sample the states of the visible units.
+	%
+	% OUTPUT:
+	%         <r>:  - dynamic RBM object with updated visible unit probabilities/
+	%                 states.
+	%--------------------------------------------------------------------------
 		nObs = size(aHid,1);
 		switch self.inputType
 		case 'binary'
-			self.pVis = self.sigmoid(bsxfun(@plus,aHid'*self.W,self.bStar'));
+			pVis = self.sigmoid(bsxfun(@plus,aHid'*self.W,self.bStar'));
 			if sampleVis
-				self.aVis = self.pVis>rand(size(self.pVis));
+				self.aVis = pVis>rand(size(pVis));
 			else
-				self.aVis = self.pVis;
+				self.aVis = pVis;
 			end
 		case 'gaussian'
 			mu = bsxfun(@plus,aHid'*self.W,self.bStar');
-			self.pVis = self.drawNormal(mu);
 			if sampleVis
-				self.aVis = self.pVis;
+				self.aVis = self.drawNormal(mu);
 			else
 				self.aVis = mu;
 			end
@@ -220,7 +267,14 @@ methods
 	end
 
 	function self = composeBiases(self,X)
-	% COMPOSE DYNAMIC BIASES
+	%r = composeBiases(X)
+	%--------------------------------------------------------------------------
+	% Compose dynamic biases for given set of frames <X>
+	%--------------------------------------------------------------------------
+	% OUTPUT:
+	%  <r>:  - dynamic RBM object with updated visible unit probabilities/states.
+	%--------------------------------------------------------------------------
+	
 		nObs = size(X,1);
 			
 		% VISIBLE DYNAMIC BIASES (AUTOREGRESSIVE)
@@ -244,7 +298,19 @@ methods
 	
 	
 	function self = updateParams(self,X);
-	% LEARNING RULES
+	% r = updateParams(X)
+	%--------------------------------------------------------------------------
+	% Update current model parameters based on the states of hidden and visible
+	% units. Weight decay is applied here.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%       <X>:  - minibatch data.
+	% <targets>:  - possible categorical targets. if no categorization,
+	%               <targets> should be empty ([]).
+	%
+	% OUTPUT:
+	%    <r>:  - dynamic RBM object with updated parameters
+	%--------------------------------------------------------------------------
 		nObs = size(X,1);
 		
 		% UNDIRECTED CONNECTION WEIGHTS
@@ -281,7 +347,7 @@ methods
 		end
 		
 		% STATIC BIASES
-		db = (mean(X(:,:,1)) - mean(self.pVis))';
+		db = (mean(X(:,:,1)) - mean(self.aVis))';
 		self.db = self.momentum*self.db + self.lRate*db;
 		self.b = self.b + self.db;
 
@@ -291,11 +357,13 @@ methods
 	end
 
 	function samples = sample(self,v0,nFrames,nGibbs);
-	%% GENERATE A SEQUENCE OF <nFrames> FROM
-	%% THE MODEL GIVEN INITIAL CONDITIONS v0
+	%samples = sample(v0,nFrames,nGibbs);
+	%--------------------------------------------------------------------------
+	% Draw samples from the current model, starting at initial state <V0>.
+	%--------------------------------------------------------------------------
 		if notDefined('nFrames'),nFrames = self.nT; end
 		if notDefined('nGibbs'),nGibbs = 50; end
-		
+		self.nGibbs = nGibbs;
 		[nDim,N] = size(v0);
 		v0 = reshape(v0,[1,nDim,N]);
 		v0 = cat(3,v0(:,:,1),v0);
@@ -311,7 +379,7 @@ methods
 				fprintf('\rGenerating Frame %d/%d',iF,nFrames)
 			end
 			self = self.composeBiases(v0);
-			self = self.runGibbs(v0(:,:,1),nGibbs); % CHECK THIS...
+			self = self.runGibbs(v0(:,:,1)); % CHECK THIS...
 			samples(:,iF) = self.aVis(:);
 			% MAKE T --> T-1, COPY STATE T
 			for ii = 1:2
@@ -321,13 +389,30 @@ methods
 		end
 	end
 
-	% CALCULATE BATCH SUM OF SQUARED ERROR
 	function err = batchError(self,X);
+	%err = batchError(X);
+	%--------------------------------------------------------------------------
+	% Calculate batch sum of squared error
+	%--------------------------------------------------------------------------
 		err = sum(sum((X-self.aVis).^2));
 	end
 
 	function arch = ensureArchitecture(self,arch);
-	% PREPROCESS PROVIDED ARCHITECTURE
+	% arch = ensureArchitecture(self,arch)
+	%--------------------------------------------------------------------------
+	% Preprocess the provided architecture structure <arch>.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	% <arch>:  - is either a [2 x 1] vector giving the [#vis x # hid], in which
+	%            case we use the default model parameters, or it is a strucure
+	%            with the fields:
+	%             .size                  --> Network size; [#Vis x # Hid]
+	%             .inputType (optional)  --> ['binary'] or 'gaussian'
+	%             .classifier (optional) --> true or [false]
+	%             .opt (optional)        --> a cell array of {'parameter',paramValue}
+	%                                        of global options
+	%--------------------------------------------------------------------------
+	
 		if ~isstruct(arch), arch.size = arch; end
 		if ~isfield(arch,'size'),
 			error('must provide an architecture size');
@@ -343,6 +428,23 @@ methods
 	end
 
 	function self = init(self,arch)
+	% r = init(arch)
+	%--------------------------------------------------------------------------
+	% Initialize an drbm object based on provided architecture, <arch>.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%    <arch>:  - a structure of architecture options. Possible fields are:
+	%               .size       --> a vector giving [#Visible x #Hidden] units
+	%               .inputType  --> string indicating input type (i.e. 'binary',
+	%                              'gaussian','multinomial')
+	%               .nT         --> the length of temporal memory to include in
+	%                               the model.
+	%               .opts       --> additional cell array of options, defined
+	%                               in argument-value pairs.
+	%
+	% OUTPUT:
+	%     <r>:  - an initialized RBM object.
+	%--------------------------------------------------------------------------
 		% ARCHITECTURE
 		arch = self.ensureArchitecture(arch);
 		self.nVis = arch.size(1);
@@ -386,9 +488,13 @@ methods
 	end
 
 	function batches = createBatches(self,nFrames)
-	% CREATE BATCH INDICES THAT REFERENCE INTO SEQUENCE FRAMES
-	% SPLIT FRAMES INTO CHUNKS (IGNORE FIRST #T FRAMES)
-	
+	% batchIdx = createBatches(X)
+	%--------------------------------------------------------------------------
+	% Create batch indices that reference into sequence frames split frames into 
+	% (we ignore first #t frames). Returns a cell array with each entry giving 
+	% the indices in to the rows of <X> for a single batch. 
+	%--------------------------------------------------------------------------
+		
 		chunkIdx = self.nT+1:(self.nT+1):nFrames;
 		chunks = [];
 		for ch = 1:(length(chunkIdx) - 1)
@@ -410,6 +516,10 @@ methods
 	end
 
 	function p  = sigmoid(self,X)
+	%p = sigmoid(X)
+	%--------------------------------------------------------------------------
+	% Sigmoid activation function
+	%--------------------------------------------------------------------------
 		if self.useGPU
 			p = arrayfun(@(x)(1./(1 + exp(-x))),X);
 		else
@@ -421,24 +531,32 @@ methods
 		p = mvnrnd(mu,ones(1,self.nVis));
 	end
 
-	% VISUALIZATION
 	function visLearning(self);
+	% visLearning();
+	%--------------------------------------------------------------------------
+	% Deal with any visualiztions. Note, must set self.visFun to appropriate
+	% visualization function handle.
+	%--------------------------------------------------------------------------
+	
 		if isempty(self.visFun)
 			switch self.inputType
 				case 'binary'
-					visBBLearning(self,iE,jB);
+					visBBLearning(self,self.epoch);
 				case 'gaussian'
-					visGBLearning(self,iE,jB);
+					visGBLearning(self,self.epoch);
 			end
 		else
 			self.visFun(self);
 		end
 	end
 
-	% VERBOSE
-	function [] = printProgress(self,sumErr,iE,jB)	
-		if iE > 1
-			if self.log.err(iE) > self.log.err(iE-1) & iE > 1
+	function [] = printProgress(self,sumErr)	
+	% printProgress(sumErr)
+	%--------------------------------------------------------------------------
+	% Utility function to display std out.
+	%--------------------------------------------------------------------------
+		if self.epoch > 1
+			if self.log.err(self.epoch) > self.log.err(self.epoch -1) & self.epoch > 1
 				indStr = '(UP)    ';
 			else
 				indStr = '(DOWN)  ';
@@ -447,25 +565,17 @@ methods
 			indStr = '';
 		end
 		fprintf('Epoch %d/%d --> Recon. error: %f %s\r', ...
-		iE,self.nEpoch,sumErr,indStr);
-	end
-
-	function [F] = freeEnergy(self,X)
-	%% CALCULATE FREE ENERGY OF VISIBLES
-		F = [];
-	end
-
-	function success = converged(self,errors);
-		success = (abs(mean(gradient(smooth(errors)))/max(self.e)) <= 0.0001);
-		if success
-			fprintf('\nCONVERGED.\n');
-		end
+		self.epoch,self.nEpoch,sumErr,indStr);
 	end
 
 	function save(self)
+	% save(self)
+	%--------------------------------------------------------------------------	
+	% Save current network
+	%--------------------------------------------------------------------------	
 		r = self;
 		if ~exist(r.saveFold,'dir'),mkdir(r.saveFold);end
-		save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',iE)),'r'); clear r;
+		save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',self.epoch)),'r'); clear r;
 	end
 end % END METHODS
 end % END CLASSDEF

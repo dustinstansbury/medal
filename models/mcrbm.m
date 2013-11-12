@@ -7,7 +7,7 @@ classdef mcrbm
 % Third-Order Boltzmann Machines".
 %
 % This function is based on the pycuda implementation available online at
-% ###
+% http://www.cs.toronto.edu/~ranzato/publications/mcRBM/code/mcRBM_04May2010.zip
 %----------------------------------------------------------------------------
 % DES
 % stan_s_bury@berkeley.edu
@@ -25,7 +25,6 @@ properties
 	nHidCov				% # OF COVARIANCE HIDDENS
 	nFactors			% # OF FACTORS
 	
-
 	% CONNECTION WEIGHTS
 	C					% VISIBLE TO FACTOR WEIGHTS - [nVis x nFactors]
 	P					% FACTOR TO HIDDEN WEIGHTS - [nFactors x nHidCov]
@@ -33,7 +32,7 @@ properties
 
 	% BIASES
 	bC					% COVARIANCE BIAS - [nHidCov x 1]
-	bM					% MEANS BIAS - [nHidMean x 1]
+	bW					% MEANS BIAS - [nHidMean x 1]
 	bV					% VISIBLE BIAS - [nVis x 1]
 	
 	% GRADIENTS
@@ -42,7 +41,7 @@ properties
 	dW					% MEANS GRADIENT
 	dbC					% COV. BIAS GRADIENT
 	dbV					% VISIBLE BIAS GRADIENT
-	dbM					% MEAN BIAS GRADIENT
+	dbW					% MEAN BIAS GRADIENT
 
 	%% LEARNING PARAMS
 	wPenalty = 0.001;	% WEIGHT DECAY
@@ -51,7 +50,7 @@ properties
 	lRateP				% FACTORS LR
 	lRateW				% MEANS LR
 	lRateb				% GENERAL BIAS LR
-	lRatebM				% MEAN BIAS LR
+	lRatebW				% MEAN BIAS LR
 
 	%% HMC PARAMS
 	nLeapFrog = 20;		% # OF LEAP FROG STEPS
@@ -68,12 +67,13 @@ properties
 	beginPUpdates = 10;% BEGUP UPDATING FACTORS AFTER # EPOCH
 	pcd = 1;			% USE PERSISTENT CONTRASTIVE DIVERGENCE
 
+	epoch = 1;
 	verbose = 1;
 	displayEvery = 10;
 	trainTime;
 	visFun;
 	saveEvery = 500;
-	saveFold='./mcRBMSave'
+	saveFold;
 	auxVars = struct();
 	useGPU = 1;
 	gpuDevice;			
@@ -83,24 +83,44 @@ end % END PROPERTIES
 methods
 
 	function self = mcrbm(arch)
-	% self = mcrbm(arch)
+	% m = mcrbm(arch)
+	%--------------------------------------------------------------------------
+	% mcRBM constructor
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%  <arch>:  - a set of arguments defining the RBM architecture.
+	%
+	% OUTPUT:
+	%     <m>:  - an mcRBM model object.
+	%--------------------------------------------------------------------------
 		self = self.init(arch);
 	end
 	function print(self)
-	% PRINT ATTRIBUTES
+	%print()
+	%--------------------------------------------------------------------------
+	% Print mcrbm attributes
+	%--------------------------------------------------------------------------
 		properties(self)
 		methods(self)
 	end
-
+	
 	function self = train(self,data)
-	%% MAIN TRAINING
+	% m = train(data)
+	%--------------------------------------------------------------------------
+	% Train an mcRBM using Contrastive Divergence
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%  <data>:  - to-be modeled data |X| = [#Obs x #Vis]
+	% OUTPUT:
+	%     <m>:  - trained RBM object.
+	%--------------------------------------------------------------------------
 
 		% INITIAL LEARNING RATES
 		lRateC0 = 2*self.lRate0;
-		lRateb0 = .01*self.lRate0;
+		lRateP0 = .02*self.lRate0;
+		lRateb0 = .02*self.lRate0;
 		lRateW0 = .2*self.lRate0;
-		lRatebM0 = .02*self.lRate0;
-		self.lRateP = .02*self.lRate0;
+		lRatebW0 = .1*self.lRate0;
 		
 		wPenalty = self.wPenalty;
 		
@@ -128,6 +148,12 @@ methods
 		t.normFactor = t.thresh;
 		t.normC = 1;
 
+		self.lRateC = lRateC0;
+		self.lRateP = lRateP0;
+		self.lRateb = lRateb0;
+		self.lRateW = lRateW0;
+		self.lRatebW =lRatebW0;
+
 		if self.useGPU
 			% ENSURE GPU HAS ENOUGH MEMORY TO TRAIN
 			try
@@ -137,85 +163,97 @@ methods
 			catch
 			end
 		end
-
+		
+		
+		nObs = size(data,2);
 		self.batchIdx = self.createBatches(data);
 		tic
 		t.clock = 0;
 		dCount = 1;
-		iE = 1;
+
 		while 1
 			sumErr = 0;
 			% SIMULATED ANNEALING
-			if self.beginAnneal
-				self.lRateC = max(lRateC0/max(1,iE/self.beginAnneal),.001);
-				self.lRateb = lRateb0/max(1,iE/self.beginAnneal);
-				self.lRateW = lRateW0/max(1,iE/self.beginAnneal);
-				self.lRatebM = lRatebM0/max(1,iE/self.beginAnneal);
+			if self.epoch >= self.beginAnneal
+
+				self.lRateC = max(lRateC0*((self.epoch-self.beginAnneal+1)^(-.25)),1e-6);
+				self.lRateP = max(lRateP0*((self.epoch-self.beginAnneal+1)^(-.25)),1e-6);
+				self.lRateb = max(lRateb0*((self.epoch-self.beginAnneal+1)^(-.25)),1e-6);
+				self.lRateW = max(lRateW0*((self.epoch-self.beginAnneal+1)^(-.25)),1e-6);
+				self.lRatebW = max(lRatebW0*((self.epoch-self.beginAnneal+1)^(-.25)),1e-6);
 			end
 			
-			if iE <= self.beginWeightDecay,
-				self.wPenalty = 0;
-			else
+			if self.epoch >= self.beginWeightDecay,
 				self.wPenalty = wPenalty;
+			else
+				self.wPenalty = 0;
 			end
 			
 			% LOOP OVER BATCHES
 			for jB = 1:numel(self.batchIdx)
 				t.data = data(:,self.batchIdx{jB});
-				
+
+				% POSITIVE GRADIENTS
 				[self,t] = self.paramGradientsUp(t);   % (1)
 
 				% PERSISTENT CONTRASTIVE DIVERGENCE?
-				if self.pcd
-					dataField = 'negData';
-				else
-					dataField = 'data';
+				if self.pcd, dataField = 'negData';
+				else, dataField = 'data';
 				end
-				
+
+				% APPROXIMATE SAMPLES FROM THE MODEL
 				[self,t] = self.sampleHMC(t,dataField);  % (2)
+				
+				% NEGATIVE GRADIENTS
 				[self,t] = self.paramGradientsDown(t);   % (3)
-				[self,t] = self.updateFactors(t,iE);     % (4) Eq. 10
+
+				% UPDATE C AND P (REGULARIZE)
+				[self,t] = self.updateFactors(t);     % (4) Eq. 10
 				
+				% BATCH ERROR
 				sumErr = self.accumErr(t,sumErr);
-				
+
+				% DISPLAY
 				if  ~mod(dCount,self.displayEvery);
+				
 					try
-%  						self.auxVars.error = self.log.err(1:iE-1);
+						self.auxVars.error = self.log.err(1:iE-1);
+						self.auxVars.batchX = t.data;
+						t.iE = iE;
 						self.auxVars.t = t;
 						self.visFun(self)
-					catch
 					end
 				end
-				
 				dCount = dCount+1;
 			end
 			
-			% NORMALIZE P AND UPDATE MEAN
-			% PARAMETERS
+			% NORMALIZE P
 			self = self.normalizeP();
 
+			% UPDATE MEAN PARAMETERS
 			if self.modelMeans
-				self = self.updateMeans(); % (4) Eq.
+				self = self.updateMeans(size(t.data,2)); % (4) Eq.
 			end
 
-			% LOG ERRORS
-			self.log.err(iE) = single(gather(sumErr));
-%  			self.log.lRate(iE) = self.lRate;
+			% LOG TOTAL ERROR
+			self.log.err(self.epoch) = single(gather(sumErr))/nObs;
 
 			if self.verbose,
-				self.printProgress(sumErr,iE,t);
+				self.printProgress(sumErr,t);
 				t.clock = toc;
 			end
 
-			% SAVE CURRENT NETWORK
-			if ~mod(iE,self.saveEvery)
+			% SAVE CURRENT PROGRESS?
+			if ~mod(self.epoch,self.saveEvery)&~isempty(self.saveFold)
 				r = self;
 				if ~exist(r.saveFold,'dir'),mkdir(r.saveFold);end
-				save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',iE)),'r'); clear r;
+				save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',self.epoch)),'r'); clear r;
 			end
-			if iE >= self.nEpoch, break; end
-			iE = iE + 1;
+			if self.epoch >= self.nEpoch, break; end
+			self.epoch = self.epoch + 1;
 		end
+		
+		% CLEAN UP
 		if self.useGPU
 			self = gpuGather(self);
 			reset(self.gpuDevice);
@@ -225,143 +263,159 @@ methods
 	end
 
 	function [self,t] = paramGradientsUp(self,t)
-	% CALCUALATE INITIAL PART OF PARAMETER GRADIENTS 
-
+	%[m,t] = paramGradientsUp(t)
+	%--------------------------------------------------------------------------
+	% Calcualate positive phase portion of likelihood gradients. t is a struct of 
+	% temporary storage variables.
+	%--------------------------------------------------------------------------
+		% NORMALIZE INPUT
 		t.normData = self.normalizeData(t.data);
 
-		% COVARIANCE GRADIENTS
-		t.filtOut = t.normData'*self.C;  % [#Samps x #Factors]
-		t.filtOutSq = t.filtOut.^2;      % [#Samps x #Factors]
+		t.filtOut = self.C'*t.normData;  % [#Factors x #Samps]
+		t.filtOutSq = t.filtOut.^2;      % [#Factors x #Samps]
 		
 		% p(h | v), Eq (2)
-		pHid = self.sigmoid(bsxfun(@plus,(-.5*t.filtOutSq*self.P),self.bC')); % [#Samps x #Cov]
+		pHid = self.sigmoid(bsxfun(@plus,(-.5*self.P'*t.filtOutSq),self.bC)); %[#Cov x #Samps]
 		
-		self.dC = t.normData*((pHid*self.P').*t.filtOut); % [#Vis x #Fators]
-
 		% FACTORS GRADIENTS
-		self.dP = (t.filtOutSq'*pHid); 	% [#Fact x #Cov]
+		self.dP = (t.filtOutSq*pHid'); % [#Fact x #Cov]
+
+		% COVARIANCE GRADIENTS
+		self.dC = t.normData*((self.P*pHid).*t.filtOut)'; % [#Vis x #Factors]
+
+		% BIAS GRADIENTS
+		self.dbC = -sum(pHid,2);       %  [#Cov x 1]
+		self.dbV = -sum(t.data,2);     %  [#Vis x 1]
 
 		if self.modelMeans
 			% MEANS GRADIENTS
-			t.meanFiltOut = -self.sigmoid(bsxfun(@plus,self.W'*t.data,self.bM)); %[#Mean x #Samps]
-			self.dW = t.data*t.meanFiltOut'; %[nVis x nMean]
+			t.meanFiltOut = self.sigmoid(bsxfun(@plus,self.W'*t.data,self.bW)); %[#Mean x #Samps]
+			self.dW = -t.data*t.meanFiltOut'; %[nVis x nMean]
+			self.dbW = -sum(t.meanFiltOut,2);% MEAN BIAS  [nMean x 1]
 		end
-		
-		% BIAS GRADIENTS
-		self.dbC = -sum(pHid)';         % COVARIANCE BIAS  [#Cov x 1]
-		self.dbV = -sum(t.data,2);      % VISIBLE BIAS	   [nVis x 1]
-		self.dbM = sum(t.meanFiltOut,2);% MEAN BIAS  [nMean x 1]
 	end
-	
 
 	function [self,t] = paramGradientsDown(self,t)
+	%[m,t] = paramGradientsUp(t)
+	%--------------------------------------------------------------------------
+	% Calcualate negative phase of of likelihood gradients. t is a struct of 
+	% temporary storage variables.
+	%--------------------------------------------------------------------------		
 	% FINALIZE PARAMETER GRADIENTS AFTER SAMPLES
-		
+
+		% NORMALIZE NEGATIVE DATA
 		t.normData = self.normalizeData(t.negData);
 
-		% COVARIANCE GRADIENTS
-		t.filtOut = t.normData'*self.C;  % [#Samps x #Factors]
-		t.filtOutSq = t.filtOut.^2;      % [#Samps x #Factors]
+		% FILTER OUTPUTS
+		t.filtOut = self.C'*t.normData;  % [#Factors x #Samps]
+		t.filtOutSq = t.filtOut.^2;      % [#Factors x #Samps]
 		
-		% p(h | v), Eq (2)
-		pHid = self.sigmoid(bsxfun(@plus,(-.5*t.filtOutSq*self.P),self.bC')); % [#Samps x #Cov]
-		
-		self.dC = self.dC - t.normData*((pHid*self.P').*t.filtOut); % [#Vis x #Fators]
+		% p(h^(c) | v), Eq (2)
+		pHid = self.sigmoid(bsxfun(@plus,(-.5*self.P'*t.filtOutSq),self.bC)); %[#Cov
 
 		% FACTORS GRADIENTS
-		self.dP = .5*(self.dP - (t.filtOutSq'*pHid)); % P
+		self.dP = 0.5*(self.dP - (t.filtOutSq*pHid')); % [#Fact x #Cov]
+
+		% COVARIANCE GRADIENTS
+		self.dC = self.dC - t.normData*((self.P*pHid).*t.filtOut)'; % [#Vis x #Factors]
+		
+
+		% BIAS GRADIENTS
+		self.dbC = self.dbC + sum(pHid,2); % COVARIANCE BIAS
+		self.dbV = self.dbV + sum(t.negData,2); % VISIBLE BIAS
 
 		if self.modelMeans
 			% MEANS GRADIENTS
-			t.meanFiltOut = self.sigmoid(bsxfun(@plus,self.W'*t.negData,self.bM));
-
+			% Eq p(h^(m) | v) (5)
+			t.meanFiltOut = self.sigmoid(bsxfun(@plus,self.W'*t.negData,self.bW));
 			self.dW = self.dW + t.negData*t.meanFiltOut';
+			self.dbW = self.dbW + sum(t.meanFiltOut, 2);% MEAN BIAS
 		end
-		% BIAS GRADIENTS
-		self.dbC = self.dbC + sum(pHid)'; % COVARIANCE BIAS
-		self.dbV = self.dbV + sum(t.negData, 2); % VISIBLE BIAS
-		self.dbM = self.dbM + sum(t.meanFiltOut, 2);% MEAN BIAS
-		
 	end
 
 	function t = energyGradient(self,t,dataField)
-	% DERIVATIVE OF FREE ENERGY AT DATAPOINT
-		
+	%t = energyGradient(t,dataField)
+	%--------------------------------------------------------------------------		
+	% Calculate derivative of mcRBM free energy  at a datapoint t.(dataField).
+	% <t> is a struct of tmpororary storage variables. <dataField> is a pointer
+	% to the current data used.
+	%--------------------------------------------------------------------------		
 		% NORMALIZE DATA
 		[t.normData,t.vectLenSq] = self.normalizeData(t.(dataField));
+		t.vectLenSq = t.vectLenSq/self.nVis + .5;
 
+		% LINEAR AND SQUARED FILTER OUTPUTS
 		t.filtOut = self.C'*t.normData; 	% [nFactors x batchSz]
 		t.filtOutSq = t.filtOut.*t.filtOut;% [nFactors x batchSz]
-		
-		t.dNorm = self.C*(self.P*self.sigmoid(bsxfun(@plus,-.5*self.P'*t.filtOutSq,self.bC)).*t.filtOut);
+
+		% NORMALIZED GRADIENT
+		t.dNorm = self.C*((self.P*self.sigmoid(bsxfun(@plus,-.5*self.P'*t.filtOutSq,self.bC))).*t.filtOut);
 
 		% BACKPROP ENERGY DERIVATIVE THROUGH NORMALIZATION - [nVis x batchSz]
 		t.dF = bsxfun(@times,t.(dataField),-sum(t.dNorm.*t.(dataField))/self.nVis);
-		t.dF = t.dF + bsxfun(@times,t.dNorm,t.vectLenSq);
-		
-		% ADD SMALL AMOUNT (0.5) HERE SO THAT GRADIENT DOESN'T BLOW UP
-		tmp2 = bsxfun(@rdivide, t.dF, sqrt(t.vectLenSq).*t.vectLenSq+.5);
-		
+		t.dF = t.dF +  bsxfun(@times,t.dNorm,t.vectLenSq);
+		t.dF = bsxfun(@rdivide,t.dF,sqrt(t.vectLenSq).*t.vectLenSq);
+
 		% ADD QUADRATIC TERM
 		t.dF = t.dF + t.(dataField);
-		
+
 		% ADD VISIBILE BIAS CONTRIBUTION
-		t.dF = bsxfun(@plus,t.dF,-self.bV);
+		t.dF = bsxfun(@minus,t.dF,self.bV);
 
 		if self.modelMeans
 			% ADD MEAN CONTRIBUTION
-			t.meanFiltOut = self.sigmoid(bsxfun(@plus,self.W'* ...
-			                    t.(dataField),self.bM));
-	        t.dF = t.dF - self.W*t.meanFiltOut;
+			t.meanFiltOut = self.sigmoid(bsxfun(@plus,self.W'*t.(dataField),self.bW));
+			t.dF = t.dF - self.W*t.meanFiltOut;
         end
 	end
 
-	function [self,t] = updateFactors(self,t,iE)
-	% L1-REGULARIZE AND UPDATE FACTOR PARAMETERS
-		
-		%  COVARIANCE HIDDENS, C
-		self.dC = self.dC + sign(self.C)*self.wPenalty;
-		self.C = self.C - self.dC*self.lRateC/self.batchSz;
+	function t = freeEnergy(self,t,dataField,energyField)
+		%t = freeEnergy(t,dataField,energyField)
+		%--------------------------------------------------------------------------		
+		% Calculate the free energy for the mcRBM at data indicated by t.<dataFields>
+		% and store it in t.<entergyField>
+		%--------------------------------------------------------------------------		
 
-		% NORMALIZE C
-		[self,t] = self.normalizeC(t);
-		
-		% COVARIANCE AND VISIBLE BIASES
-		self.bC = self.bC - self.dbC*self.lRateb/self.batchSz;
-		self.bV = self.bV - self.dbV*self.lRateb/self.batchSz;
+	  	% NORMALIZE DATA
+		[t.normData,t.vectLenSq] = self.normalizeData(t.(dataField));
 
-		% P 
-		if iE >= self.beginPUpdates
-			if self.beginAnneal
-				self.lRateP = max(1e-10,self.lRateP/max(1,(self.beginPUpdates-iE)/self.beginAnneal));
-			end
-			self.dP = self.dP + sign(self.P)*self.wPenalty;
-			self.P = self.P - self.dP*self.lRateP/self.batchSz;
-		end
+		%% COMPOSE HAMILTONIAN 
 		
-		% (ANTI) RECTIFY P
-		self.P(self.P < 0) = 0;
-		
-		% ENFORCE TOPOGRAPHY  
-		if ~isempty(self.topoMask)
-			self.P = self.P.*self.topoMask;
+		% REGULARIZATION TERM CONTRIBUTION
+		t.U = .5*t.vectLenSq;
+
+		% POTENTIAL ENERGIES
+		% COVARIANCE CONTRIBUTION
+		t.filtOut = self.C'*t.normData;
+		t.filtOutSq = t.filtOut.^2;
+
+		% Eqn (8), 1ST TERM
+		t.U = t.U - sum(log(1+exp(bsxfun(@plus,-.5*self.P'*t.filtOutSq,self.bC))));
+
+		if self.modelMeans
+			% MEAN CONTRIBUTION
+			% Eqn (8) 2ND TERM
+			t.U = t.U - sum(log(1+exp(bsxfun(@plus,self.W'*t.data,self.bW))));
 		end
+
+		% VISIBLE BIAS
+		t.U = t.U - sum(bsxfun(@times,t.data,self.bV));
+
+		%% ADD KINETIC ENERGY TERM
+		t.(energyField) = t.U + .5*sum(t.p.*t.p);
 	end
 
-	function self = updateMeans(self)
-	% L1-REGULARIZE MEAN WEIGHTS/BIASES AND UPDATE
-		self.dW = self.dW + sign(self.W)*self.wPenalty;
-		self.W = self.W - self.dW*self.lRateW/self.batchSz;
-		self.bM = self.bM - self.dbM*self.lRatebM/self.batchSz;
-	end
 
 	function [self,t] = sampleHMC(self,t,dataField)
-	% HYBRID MONTE-CARLO SAMPLER ON FREE ENERGY
-	
+	%[m,t] = sampleHMC(t,dataField)
+	%--------------------------------------------------------------------------		
+	% Draw a sample from the mcRBM using hybrid monte-carlo sampler on free 
+	% energy.
+	%--------------------------------------------------------------------------		
 		% SAMPLE MOMENTA
 		t.p = randn(size(t.p));
 
-		% ENERGY AT INITIAL/POSITIVE DATA
+		% INITIAL ENERGY (F0) AT POSITIVE DATA
 		t = self.freeEnergy(t,dataField,'F0');
 		
 		% CALC INITIAL GRADIENT
@@ -370,7 +424,7 @@ methods
 		% BEGIN LEAPFROG ALGORITHM
 		%----------------------------------------------
 		% FIRST HALF STEP
-		t.p = t.p - .5*t.dF*self.hmcStep;
+		t.p = t.p - .5*t.dF.*self.hmcStep;
 		t.negData = t.negData + t.p*self.hmcStep;
 		
 		% FULL STEPS
@@ -378,12 +432,11 @@ methods
 			% GRADIENT AT CURRENT RECONSTRUCTION
 			t = self.energyGradient(t,'negData');
 
-
 			% UPDATE MOMENTUM
 			t.p = t.p - t.dF*self.hmcStep;
+			
 			% UPDATE SAMPLES/POSITION
 			t.negData = t.negData + t.p*self.hmcStep;
-			
 		end
 
 		% LAST HALF STEP
@@ -391,82 +444,95 @@ methods
 		t.p = t.p - .5*t.dF*self.hmcStep;
 
 		% WE SHOULD NEGATE MOMENTUM HERE FOR 
-		% SYMMETRIC PROPOSAL (NEAL, 1996), BUT
-		% SINCE USING CD[1], IT DOESN'T MATTER
-		% ALSO END UP SQUARING p LATER, SO MEH
+		% SYMMETRIC PROPOSAL, BUT SINCE USING CD[1],
+		% IT DOESN'T MATTER; ALSO END UP SQUARING p
+		% LATER, SO MEH
 		% t.p = -t.p;
-		
 		%----------------------------------------------
 		% END LEAPFROG ALGORITHM
 
-		% NEGATIVE ENERGY
+			% FINAL ENERGY (F) AT NEGATIVE DATA 
 		t = self.freeEnergy(t,'negData','F');
-		
+
 		% EVALUATE ACCEPT/REJECTION CRITERION
 		t.thresh = exp(t.F0 - t.F);
 
-		t.detect = 1*(t.thresh >= rand(size(t.thresh)));
-		t.nReject = sum(t.detect);
+		% DETECT REJECTED SAMPLES
+		t.detect = 1*(t.thresh < rand(size(t.thresh)));
+		t.nReject = sum(t.detect,2);
 
 		% UPDATE REJECTION RATE
-		t.rejectRate = t.nReject/self.batchSz;
+		% NOTE: HERE WE ASSUME ALL BATCHES ARE SAME SIZE; PERHAPS FIX
+		t.rejectRate = t.nReject/size(t.data,2);  
 		t.hmcAverageRej = 0.9*t.hmcAverageRej + 0.1*t.rejectRate;
 
 		% UPDATE NEGATIVE DATA ACCORDING TO ACCEPT/REJECT
 		t.maskData = bsxfun(@times,t.data,t.detect);
 		t.maskNegData = bsxfun(@times,t.negData,t.detect);
-		
-		t.negData = t.negData - t.maskNegData;
-		
-		t.negData = t.negData + t.maskData;
-		
+
+		t.negData = t.negData - t.maskNegData + t.maskData;
+
 		% UPDATE STEPSIZE
 		if t.hmcAverageRej < self.hmcTargetRej
 			self.hmcStep = min(0.25,self.hmcStep*1.01);
 		else
-			self.hmcStep = max(0.001,self.hmcStep*0.99);
+			self.hmcStep = max(1e-3,self.hmcStep*0.99);
+		end
+	end
+	
+	function [self,t] = updateFactors(self,t)
+	%[m,t] = updateFactors(t)	
+	%--------------------------------------------------------------------------		
+	% L1-regularize and update factor parameters, C and P
+	%--------------------------------------------------------------------------		
+		%  COVARIANCE HIDDENS, C
+		self.dC = self.dC + sign(self.C)*self.wPenalty;
+		self.C = self.C - self.dC*self.lRateC/size(t.data,2);
+
+		% NORMALIZE C
+		[self,t] = self.normalizeC(t);
+
+		% COVARIANCE AND VISIBLE BIASES
+		self.bC = self.bC - self.dbC*self.lRateb/size(t.data,2);
+		self.bV = self.bV - self.dbV*self.lRateb/size(t.data,2);
+
+		% P
+		if self.epoch >= self.beginPUpdates
+			self.dP = self.dP + sign(self.P)*self.wPenalty;
+			self.P = self.P - self.dP*self.lRateP/size(t.data,2);
+		end
+
+		% (ANTI) RECTIFY P
+		self.P(self.P < 0) = 0;
+
+		% ENFORCE TOPOGRAPHY
+		if ~isempty(self.topoMask)
+			self.P = self.P.*self.topoMask;
 		end
 	end
 
-	function t = freeEnergy(self,t,dataField,energyField)
-	  	% F = - sum log(1+exp(- .5 P (C data/norm(data))^2 + bias_cov)) +...
-	  	%    - sum log(1+exp(w_mean data + bias_mean)) + ...
-	  	%     - bias_vis data + 0.5 data^2
-	  	
-	  	% NORMALIZE DATA
-		[t.normData,t.vectLenSq] = self.normalizeData(t.(dataField));
-
-		% REGULARIZATION TERM CONTRIBUTION TO ENERGY
-		t.U = .5*t.vectLenSq;
-
-		%% COMPOSE HAMILTONIAN - POTENTIAL ENERGY
-		% COVARIANCE CONTRIBUTION
-		t.filtOut = self.C'*t.normData;
-		t.filtOutSq = t.filtOut;
-		t.U = t.U-sum(log(1+exp(bsxfun(@plus,-.5*self.P'*t.filtOutSq,self.bC))));
-
-		if self.modelMeans
-			% MEAN CONTRIBUTION
-			t.U = t.U -sum(log(1+exp(bsxfun(@plus,self.W'*t.data,self.bM))));
-		end
-		
-		% VISIBLE BIAS 
-		t.U = t.U + sum(-bsxfun(@times,t.data,self.bV));
-
-		%% ADD KINETIC ENERGY TERM
-		t.(energyField) = t.U + .5*sum(t.p.*t.p);
-		
+	function self = updateMeans(self,nVis)
+	%--------------------------------------------------------------------------		
+	% L1-regularize mean weights/biases and update.
+	%--------------------------------------------------------------------------		
+		self.dW = self.dW + sign(self.W)*self.wPenalty;
+		self.W = self.W - self.dW*self.lRateW/nVis;
+		self.bW = self.bW - self.dbW*self.lRatebW/nVis;
 	end
-
+	
 	function arch = ensureArchitecture(self,arch);
+	% arch = ensureArchitecture(self,arch)
+	%--------------------------------------------------------------------------
+	% Preprocess the provided architecture structure <arch>.
+	%--------------------------------------------------------------------------
 	% PARSE SUPPLIED ARCHITECTURE
-		% <arch> is either a [1 x 4] vector that is shorthand for:
-		%       [#Vis #hidMean #hidCov #Factors], in which case we use
-	    %       default parameters, or a struct, with the fields
-	    %       .nVis, .nHidMean, .nHidCov, .nFactors, and, optionally, a
-	    %       field .opts, which is a cell array of field-value global model
-	    %       options
-	    
+	% <arch> is either a [1 x 4] vector that is shorthand for:
+	%       [#Vis #hidMean #hidCov #Factors], in which case we use
+    %       default parameters, or a struct, with the fields
+    %       .nVis, .nHidMean, .nHidCov, .nFactors, and, optionally, a
+    %       field .opts, which is a cell array of field-value global model
+    %       options
+	%--------------------------------------------------------------------------
 		if ~isstruct(arch) % PARSE SHORTHAND INITIALIZATION
 			archTmp = arch;
 			arch.nVis = archTmp(1);
@@ -490,7 +556,19 @@ methods
 	end
 	
 	function self = init(self,arch) %%
-	% INITIALIZE mcRBM
+	% m = init(arch)
+	%--------------------------------------------------------------------------
+	% Initialize an mcrbm object based on provided architecture, <arch>.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%    <arch>:  - a structure of architecture options. Possible fields are:
+	%               .nVis     --> #Visible units
+	%               .nHidMean --> # of mean hidden units
+	%               .nHidCov  --> # of covariance hidden units
+	%               .nPool    --> # of pooling units
+	%               .opts     --> additional cell array of options, defined
+	%                             in argument-value pairs.
+	%--------------------------------------------------------------------------
 		arch = self.ensureArchitecture(arch);
 		if isfield(arch,'opts')
 			opts = arch.opts;
@@ -519,14 +597,9 @@ methods
 		% CONNECTION WEIGHTS
 		self.C = 0.02*randn(self.nVis,self.nFactors);
 		
-		% TODO: ADD TOPOGRAPHY MASKING FOR P/P
 		if ~isempty(self.topoMask);
-			if exist(self.topoMask,'file')
-				% INITIALIZE POOLING MATRIX AND MASK
-				load(self.topoMask,'PO','mask');
-				self.topoMask = mask; clear mask;
-				self.P = P0; clear P0;
-			end
+				self.P = self.topoMask;
+				self.topoMask = (self.topoMask > 1e-6);
 		else			
 			self.P = eye(self.nFactors,self.nHidCov);
 			self.topoMask = [];
@@ -540,27 +613,30 @@ methods
 		% BIASES		
 		self.bC = 2*ones(self.nHidCov,1);
 		self.bV = zeros(self.nVis,1);
-		self.bM = -2*ones(self.nHidMean,1);
+		self.bW = -2*ones(self.nHidMean,1);
 		
 		% GRADIENTS
 		self.dC = zeros(self.nVis,self.nFactors);
 		self.dP = zeros(self.nFactors, self.nHidCov);
 		self.dbC = zeros(self.nHidCov,1);
 		self.dbV = zeros(self.nVis,1);
-		self.dbM = zeros(self.nHidMean,1);
+		self.dbW = zeros(self.nHidMean,1);
 	end
 
-	function save(self,epoch) %%
+	function save(self) %%
+	 % save() 
+	 %--------------------------------------------------------------------------
+	 % Save current network
+	 %--------------------------------------------------------------------------
 			if self.useGPU
 				r = gpuGather(self);
 			else
 				r = self;
 			end
-			
 			if ~exist(r.saveFold,'dir')
 				mkdir(r.saveFold);
 			end
-			save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',epoch)),'r'); clear r;
+			save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',self.epoch)),'r'); clear r;
 	end
 
 
@@ -570,26 +646,27 @@ methods
 		err = err + err0;
 	end
 
-	function printProgress(self,sumErr,iE,t)
+	function printProgress(self,sumErr,t)
+		iE = self.epoch;
 		fprintf('\n---- Epoch %d / %d ----\n',iE,self.nEpoch)
 		fprintf('\n|C|   = %3.2e',norm(self.C)) ;
-		fprintf('\n|dC|  = %3.2e',norm(self.dC)*(self.lRateC/self.batchSz)) ;
+		fprintf('\n|dC|  = %3.2e',norm(self.dC)*(self.lRateC/size(t.data,2))) ;
 
 		if self.modelMeans
 			fprintf('\n|W|   = %3.2e',norm(self.W)) ;
-			fprintf('\n|dW|  = %3.2e',norm(self.dW)*(self.lRateW/self.batchSz));
+			fprintf('\n|dW|  = %3.2e',norm(self.dW)*(self.lRateW/size(t.data,2)));
 		end
 		fprintf('\n|P|   = %3.2e',norm(self.P)) ;
-		fprintf('\n|dP|  = %3.2e',norm(self.dP)*(self.lRateP/self.batchSz)) ;
+		fprintf('\n|dP|  = %3.2e',norm(self.dP)*(self.lRateP/size(t.data,2))) ;
 		
 		fprintf('\n|bC|  = %3.2e',norm(self.bC)) ;
-		fprintf('\n|dbC| = %3.2e',norm(self.dbC)*(self.lRateb/self.batchSz));
+		fprintf('\n|dbC| = %3.2e',norm(self.dbC)*(self.lRateb/size(t.data,2)));
 		
-		fprintf('\n|bM|  = %3.2e',norm(self.bM)) ;
-		fprintf('\n|dbM| = %3.2e',norm(self.dbM)*(self.lRatebM/self.batchSz));
+		fprintf('\n|bW|  = %3.2e',norm(self.bW)) ;
+		fprintf('\n|dbW| = %3.2e',norm(self.dbW)*(self.lRatebW/size(t.data,2)));
 		
 		fprintf('\n|bV|  = %3.2e',norm(self.bV)) ;
-		fprintf('\n|dbV| = %3.2e',norm(self.dbV)*(self.lRateb/self.batchSz));
+		fprintf('\n|dbV| = %3.2e',norm(self.dbV)*(self.lRateb/size(t.data,2)));
 		
 		fprintf('\n\nHMC step = %3.2e',self.hmcStep);
 		fprintf('\nHMC rej rate = %3.2e (target = %3.2e)\n',t.hmcAverageRej,self.hmcTargetRej);
@@ -598,7 +675,10 @@ methods
 	end
 
 	function batchIdx = createBatches(self,X)
-	% CREATE MINIBATCHES
+	% batchIdx = createBatches(X)
+	%--------------------------------------------------------------------------
+	% Create minibatches
+	%--------------------------------------------------------------------------
 		[nVis,nObs] = size(X);
 		
 		nBatches = ceil(nObs/self.batchSz);
@@ -612,27 +692,41 @@ methods
 	end
 
 	function [data,vectLenSq] = normalizeData(self,data)
-	% L2-NORMALIZE DATA
+	% [data,vectLenSq] = normalizeData(self,data)
+	%--------------------------------------------------------------------------
+	% L2-normalize <data>.
+	%--------------------------------------------------------------------------
 		vectLenSq = dot(data,data);
-		vectLen = sqrt(vectLenSq/self.nVis + .5);
-		normData = bsxfun(@rdivide,data,vectLen);
+		% HERE WE SCALE THE VECTOR LENGTH BY # OF VISIBLES (LIKE STD),
+		% AND ADD SMALL OFFSET (0.5) TO AVOID DIVISION BY ZERO
+		data = bsxfun(@rdivide,data,sqrt(vectLenSq/self.nVis + .5));
 	end
 
 	function [self,t] = normalizeC(self,t)
-	% NORMALIZE COLUMNS OF C BY SMOOTHED
-	% (RUNNING AVERAGE OF) L2-NORM
-	
-		vectNorm = sqrt(dot(self.C,self.C));
+	%[m,t] = normalizeC(t)
+	%--------------------------------------------------------------------------
+	% Normalize columns of C by smoothed  calculation (exponential running `
+	% average of) of its L2-norm.
+	%--------------------------------------------------------------------------
+	%  		vectNorm = sqrt(dot(self.C,self.C));
+		vectNorm = sqrt(sum(self.C.*self.C));
 		t.normC = 0.95*t.normC+(.05/self.nFactors)*sum(vectNorm);
 		self.C = bsxfun(@rdivide,self.C,vectNorm)*t.normC;
 	end
 
 	function [self] = normalizeP(self)
-	% SET L1-NORM OF EACH COLUMN OF P EQUAL TO ONE
-		self.P = bsxfun(@rdivide,self.P,sum(self.P));
+	%[m] = normalizeP(m)
+	%--------------------------------------------------------------------------
+	% Rescale P such that L1-norm of each column of p equal to one
+	%--------------------------------------------------------------------------
+		self.P = bsxfun(@rdivide,self.P,sum(self.P,1));
 	end
 
 	function p = sigmoid(self,X)
+	%p = sigmoid(X)
+	%--------------------------------------------------------------------------
+	% Sigmoid activation function
+	%--------------------------------------------------------------------------
 		p = 1./(1+exp(-X));
 	end
 

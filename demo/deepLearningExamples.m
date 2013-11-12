@@ -98,14 +98,14 @@ demoMLCNN
 fprintf('\nConvolutional Neural Net demo finished.\n')
 
 case {'drbm','dynamic rbm'}
-% CONVOLUTIONAL NEURAL NETWORK
+% DYNAMIC/CONDITIONAL RBM
 clear all; close all; clc
 fprintf('\nRunning Dynamic RBM demo (demoDRBM.m)\n')
 demoDRBM
 fprintf('\nDynamic RBM Demo finished.\n')
 
 case {'mcrbm','mean covariance rbm'}
-% CONVOLUTIONAL NEURAL NETWORK
+% MEAN-COVARIANCE RBM
 clear all; close all; clc
 fprintf('\nRunning Mean-Covariance RBM demo (demoMCRBM.m)\n')
 demoMCRBM

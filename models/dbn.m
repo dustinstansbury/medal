@@ -2,12 +2,9 @@ classdef dbn
 % Deep Belief Network object.
 %-----------------------------------------------------------------------------
 % Initialize, train, and fine-tune a deep belief network.
-%
-% Supports hidden unit dropout in each layer
-%
 % Note this function calls the rbm.m object to form layers.
 %-----------------------------------------------------------------------------
-% DES
+% Dustin E. Stansbury
 % stan_s_bury@berkeley.edu
 
 properties
@@ -19,20 +16,46 @@ properties
 	nRBMLayers;				% # OF RBM LAYERS
 	rbmLayers;				% RBM LAYERS
 	verbose = 1;			% DISPLAY OUTPUT
+	saveDir
 end
 
 methods
 	function self = dbn(arch)
+	% d = dbn(arch)
+	%--------------------------------------------------------------------------
+	% DBN constructor
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%  <arch>:  - a set of arguments defining the DBN architecture.
+	%
+	% OUTPUT:
+	%     <d>:  - an DBN model object.
+	%--------------------------------------------------------------------------
 		self = self.init(arch);
 	end
 
 	function print(self)
+	% print()
+	%--------------------------------------------------------------------------
+	% Display the properties and methods for the DBN object class.
+	%--------------------------------------------------------------------------
 		properties(self)
 		methods(self)
 	end
 
 	function self = train(self,X,targets);
-	% PRETRAIN A DEEP BELIEF NETWORK
+	% self = train(X,[targets])
+	%--------------------------------------------------------------------------
+	% Perform greedy layer-wise training of of a DBN
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%        <X>:  - to-be modeled data |X| = [#Obs x #Vis]
+	%  <targets>:  - category targets. can be either [#Obs x #Class] as 1 of
+	%                K representation or [#Obs x 1], where each entry is a
+	%                numerical category label. (optional)
+	% OUTPUT:
+	%     <self>:  - trained DBN object.
+	%--------------------------------------------------------------------------
 		for iL = 1:self.nRBMLayers
 			if self.verbose,
 				self.printProgress('layerTrain',iL);
@@ -42,17 +65,34 @@ methods
 			if iL == self.nRBMLayers & self.classifier
 				self.rbmLayers{iL} = self.rbmLayers{iL}.train(X,targets);
 			else
+				
 				self.rbmLayers{iL} = self.rbmLayers{iL}.train(X,[]);
 			end
 
 			% PREPROCESS INPUT FOR NEXT LAYER
 			X = self.rbmLayers{iL}.hidExpect(X);
 		end
+		if ~isempty(self.saveDir),
+			d = self;
+			save(fullfile(self.saveDir,'dbn.mat'),'d','-v7.3');
+		end
 	end
 
 	function net = fineTune(self,X,targets,ftArch);
-	% FINE TUNE AUTOENCODER FEATURES FOR A TASK
-	% USING BACKPROP (STOCHASTIC GRADIENT DESCENT)
+	%  net = fineTune(X,targets,ftArch);
+	%--------------------------------------------------------------------------
+	% Initialize a multi-layer neural network with trained DBN features and
+	% fine tune for a task using backprop (stochastic gradient descent)
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%        <X>:  - to-be modeled data |X| = [#Obs x #Vis]
+	%  <targets>:  - target variables.
+	%   <ftArch>:  - architecture for the corresponding neural network (see
+	%                mlnn.m)
+	%
+	% OUTPUT:
+	%      <net>:  - a trained multi-layer neural network
+	%-------------------------------------------------------------------------- 
 		[nObs,nOut] = size(targets);
 		if self.verbose
 			self.printProgress('fineTune')
@@ -71,8 +111,14 @@ methods
 	end
 
 	function [outAct,outProb,layerOut] = fProp(self,X,targets);
-	% PROPAGATE SIGNAL UP THROUGH THE LAYERS OF THE DBN
-
+	% [outAct,outProb] = fProp(X,[targets]);
+	%-------------------------------------------------------------------------- 
+	% Forward propagate signal up through the layers of the dbn.
+	%--------------------------------------------------------------------------
+	% OUTPUT:
+	%  <outAct>:  - activation of the top layer/output hidden units
+	% <outProb>:  - probabilities of top layer hidden units
+	%--------------------------------------------------------------------------
 		if notDefined('targets'),
 			targets = 0;
 		end
@@ -86,7 +132,13 @@ methods
 	end
 
 	function [pred,error,misClass] = classify(self,X,targets)
-	% CLASSIFY
+	%  [pred,error,misClass] = classify(X,[targets])
+	%--------------------------------------------------------------------------
+	% Forward propagate data <X> through the layers of the DBN and classify.
+	% If <targets> provided, also returns the classification error <error>,
+	% and the indices of the misclassified inputs <misClass>.
+	%--------------------------------------------------------------------------
+	
 	
 		if notDefined('targets')
 			targets = []; 
@@ -121,13 +173,17 @@ methods
 	end
 
 	function self = init(self,arch)
-	% INITIALIZE DEEP BELIEF NETWORK
-	% <arch> IS AN ARCHTIECTURE STRUCT WITH THE FIELDS:
-	%	.shape -- [#INPUT #HID1, ..., #HIDN, #OUT]
-	%	.lRate -- THE LEARNING RATE FOR EACH AE LAYER
-	%	.sparsity -- THE SPARSITY TARGET FOR HIDDEN UNITS
-	%	.dropout -- THE HIDDEN UNIT DROPOUT RATE FOR EACH RBM LAYER
-
+	% dbn = init(arch)
+	%--------------------------------------------------------------------------
+	% Initialize deep belief network, based on architecture structure <arch>.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	% <arch>:  - Is an archtiecture struct with the fields:
+	%            .shape    --> [#Vis #Hid1, ..., #HidN, #out]
+	%            .lRate    --> the learning rate for each layer
+	%            .sparsity --> the sparsity target for hidden units
+	%            .dropout  --> the hidden unit dropout rate for each rbm layer
+	%--------------------------------------------------------------------------
 		arch = self.ensureArchetecture(arch);
 		
 		% GLOBAL OPTIONS
@@ -169,7 +225,20 @@ methods
 	end
 
 	function arch = ensureArchetecture(self,arch)
-	% PREPROCESS INITIALIZATION INPUT
+	% arch = ensureArchitecture(arch)
+	%--------------------------------------------------------------------------
+	% Preprocess the provided architecture structure <arch>.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	% <arch>:  - is either a [2 x 1] vector giving the [#Vis x #Hid], in which
+	%            case we use the default model parameters, or it is a strucure
+	%            with any of the fields:
+	%             .size                --> Network size; [#Vis x # Hid]
+	%             .nEpoch(optional)    --> # of training epochs for each layer
+	%             .lRate (optional)    --> learing rate for each layer
+	%             .sparsity (optional) --> sparsity rate for each layer
+	%             .dropout (optional)  --> dropout rate for each layer
+	%--------------------------------------------------------------------------
 		if ~isstruct(arch),arch.size = arch; end
 
 		nLayers = numel(arch.size);

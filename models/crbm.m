@@ -1,5 +1,5 @@
 classdef crbm
-% A convolutional Restricted Boltzmann Machine Object
+% Convolutional Restricted Boltzmann Machine Object
 %-------------------------------------------------------------------------------
 % Initialize and train a convolutional Restricted Bolzmann Machine model.
 %
@@ -27,12 +27,10 @@ properties
 	W						% CONNECTION WEIGHTS (FILTERS)
 	b						% HIDDEN UNIT BIASES
 	c						% VISIBLE UNIT BIASES
-
 	% PARAMETER GRADIENTS
 	dW					
 	db
 	dc
-
 	% UNIT STATES/STATISTICS
 	eVis					% VISIBLE UNIT EXPECTATION
 	eHid					% HIDDEN UNIT EXPECTATION
@@ -40,17 +38,14 @@ properties
 	hidI					% BOTTOM-UP SIGNAL FROM VISIBLES TO HIDDENS
 	visI					% TOP-DOWN SIGNAL FROM HIDDEN FEATURE MAPS TO VISIBLES
 	ePool					% EXPECTATION OF POOLING LAYER
-
 	% LEARNING PARAMETERS
-	nEpoch = 10;			% (DEFAULT) # OF TIMES WE SEE THE DAT
-	lRate = 0.1;			% (DEFAULT) LEARNING RATE
-	nGibbs = 1;				% (DEFAULT) # OF GIBBS SAMPLES (CONTRASTIVE DIVERGENCE)
-
+	nEpoch = 10;			% # OF TIMES WE SEE THE DAT
+	lRate = 0.1;			% LEARNING RATE
+	nGibbs = 1;				% # OF GIBBS SAMPLES (CONTRASTIVE DIVERGENCE)
 	% DISPLAYING
 	verbose = 1;			% DISPLAY STDOUT
 	displayEvery = 100;		% DISPLAY AFETER THIS # OF WEIGHT UPDATES
 	visFun = [];			% VISUALIZATION FUNCTION HANDLE
-
 	% REGULARIZATION
 	sparsity = 0.02;		% TARGET HIDDEN UNIT SPARSITY
 	sparseGain = 1;			% GAIN ON THE LEARNING RATE FOR SPARSITY CONSTRAINTS
@@ -58,11 +53,10 @@ properties
 	wPenalty = .05;			% L2 WEIGHT PENALTY
 	beginAnneal = Inf;		% BEGIN SIMULUATED ANNEALING AFTER THIS # OF EPOCHS
 	beginWeightDecay = 1;	% BEGIN WEIGHT DECAY AFTER THIS # OF EPOCHS
-			
 	% GENERAL VARIABLES
 	log = struct();			% FOR KEEPING TRACK OF ERRORS
 	saveEvery = 1e10;		% SAVE EVERY # OF EPOCHS
-	saveFold = './cRBMSave';% DIRECTORY TO SAVE INTO
+	saveFold;
 	trainTime;				% TIME TO TRAIN
 	auxVars;				% AUXILARY VARIABLES (FOR VISUALIZATION, ETC)
 	useGPU = 0;				% USE GPU IF AVAILABLE
@@ -72,16 +66,28 @@ end % END PROPERTIES
 methods
 
 	function self = crbm(arch);
-	% CONSTRUCTOR
+	% net = mlnn(arch)
+	%--------------------------------------------------------------------------
+	%crbm constructor method. Initilizes a mlnn object, <net> given a user-
+	%provided architecture, <arch>.
+	%--------------------------------------------------------------------------
 			self = self.init(arch);
 	end
 
 	function [] = print(self)
+		%print()
+	%--------------------------------------------------------------------------
+	%Print properties and methods for crbm object.
+	%--------------------------------------------------------------------------
 		properties(self);
 		methods(self);
 	end
 
 	function self = train(self,data)
+	%c = train(data, targets, [batches])
+	%--------------------------------------------------------------------------
+	% Train a crbm using stochastic gradient descent. 
+	%--------------------------------------------------------------------------
 		if self.useGPU
 			self = gpuDistribute(self);
 			data = gpuArray(data);
@@ -153,7 +159,7 @@ methods
 			end
 
 			if iE > 1
-				if iE == self.saveEvery
+				if iE == self.saveEvery & ~isempty(self.saveFold)
 					self.save(iE)
 				end
 			end
@@ -171,9 +177,33 @@ methods
 		end
 		fprintf('\n');
 	end
+
+	function [self,dW,db,dc] = calcGradients(self,data)
+	% [c,dW,db,dc] = calcGradients(data)
+	%--------------------------------------------------------------------------
+	% Draw MCMC samples from the current model and calculate parameter
+	% gradients. 
+	%--------------------------------------------------------------------------
+		self = self.runGibbs(data);
+		for iK = 1:self.nFM
+			dW(:,:,iK)  = (conv2(data,self.ff(self.eHid0(:,:,iK)),'valid') - ...
+			conv2(self.eVis,self.ff(self.eHid(:,:,iK)),'valid'));
+		end
+		db = sum(sum(data - self.eVis));
+		dc = squeeze(sum(sum(self.eHid0 - self.eHid)));
+	end
+
 	function self = runGibbs(self,data)
-	% CONTRASTIVE DIVERGENCE LEARNING
-	
+	% self = runGibbs(X,targets)
+	%--------------------------------------------------------------------------
+	% Draw MCMC samples from the current model via Gibbs sampling.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%       <X>:  - minibatch data.
+	%
+	% OUTPUT:
+	%    <self>:  - RBM object with updated states
+	%--------------------------------------------------------------------------
 		% INITIAL PASS
 		[self,self.eHid0] = self.hidGivVis(data);
 		for iC = 1:self.nGibbs
@@ -184,19 +214,11 @@ methods
 		end
 	end
 
-	function [self,dW,db,dc] = calcGradients(self,data)
-	% CALCULATE GRADIENTS
-		self = self.runGibbs(data);
-		for iK = 1:self.nFM
-			dW(:,:,iK)  = (conv2(data,self.ff(self.eHid0(:,:,iK)),'valid') - ...
-			conv2(self.eVis,self.ff(self.eHid(:,:,iK)),'valid'));
-		end
-		db = sum(sum(data - self.eVis));
-		dc = squeeze(sum(sum(self.eHid0 - self.eHid)));
-	end
-
 	function self = applyGradients(self,dW,db,dc)
-	% UPDATE PARAMETERS
+	%c = applyGradients(dW,db,dc)
+	%--------------------------------------------------------------------------
+	% Update all parameters given current gradients.
+	%--------------------------------------------------------------------------
 		[self.W,self.dW] = self.updateParams(self.W,dW,self.dW,self.wPenalty);
 		[self.b,self.db] = self.updateParams(self.b,db,self.db,0);
 		[self.c,self.dc] = self.updateParams(self.c,dc,self.dc,0);
@@ -209,7 +231,20 @@ methods
 	end
 
 	function [self,eHid] = hidGivVis(self,vis)
-	% CALCULATE HIDDEN EXPECTATIONS GIVEN VISIBLE UNITS
+	% [self,eHid] = hidGivVis(X,targets,[sampleHid])
+	%--------------------------------------------------------------------------
+	% Update hidden unit expectations conditioned on the current states of the 
+	% visible units.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%         <X>:  - batch data.
+	%   <targets>:  - possible target variables.
+	% <sampleHid>:  - flag indicating to sample the states of the hidden units.
+	%
+	% OUTPUT:
+	%      <self>:  - RBM object with updated hidden unit probabilities/states.
+	%--------------------------------------------------------------------------
+	
 		for iK = 1:self.nFM
 			self.hidI(:,:,iK) = exp(conv2(vis,self.ff(self.W(:,:,iK)),'valid')+self.c(iK));
 		end
@@ -218,12 +253,26 @@ methods
 	end
 
 	function self = visGivHid(self,hid)
-	% CALCULATE VISIBLE EXPECTATIONS GIVEN EACH HIDDEN FEATURE MAP
+	% self = hidGivVis(hid)
+	%--------------------------------------------------------------------------
+	% Update hidden unit expectations conditioned on the current states of the 
+	% visible units.
+	%--------------------------------------------------------------------------
+	% INPUT:
+	%         <X>:  - batch data.
+	%   <targets>:  - possible target variables.
+	% <sampleHid>:  - flag indicating to sample the states of the hidden units.
+	%
+	% OUTPUT:
+	%      <self>:  - RBM object with updated hidden unit probabilities/states.
+	%--------------------------------------------------------------------------
+
+		% CALCULATE VISIBLE EXPECTATIONS GIVEN EACH HIDDEN FEATURE MAP
 		for iK = 1:self.nFM
 			self.visI(:,:,iK) = conv2(hid(:,:,iK),self.W(:,:,iK),'full');
 		end
 		I = sum(self.visI,3) + self.b;
-		if strcmp(self.inputType,'binary')
+		if strcmp(self.inputType,'binary'); % USING MEAN FIELD
 			self.eVis = self.sigmoid(I);
 		else
 			self.eVis = I;
@@ -231,8 +280,10 @@ methods
 	end
 
 	function [self,ePool] = poolGivVis(self,vis)
-	% CALCULATE POOLING LAYER EXPECTATIONS GIVEN VISIBLES (FOR SAMPLING & DBNs)
-	
+	%[c,ePool] = poolGivVis(vis)
+	%--------------------------------------------------------------------------
+	% Calculate pooling layer expectations given visibles (for sampling & dbns)
+	%--------------------------------------------------------------------------	
 		I = zeros(size(self.eHid));
 		for iK = 1:self.nFM
 			I(:,:,iK) = exp(conv2(vis,self.ff(self.W(:,:,iK)),'valid') + self.c(iK));
@@ -242,7 +293,10 @@ methods
 	end
 
 	function blocks = pool(self,I); % [[hiddenSize]/stride data nFeatures]
-	% POOL HIDDEN ACTIVATIONS BY SUMMING OVER BLOCKS B_\alpha
+	%blocks = pool(I)
+	%--------------------------------------------------------------------------
+	% Pool hidden activations I by summing over blocks b_\alpha
+	%--------------------------------------------------------------------------
 		nCols = size(I,1);
 		nRows = size(I,2);
 		yStride = self.stride(1);
@@ -262,6 +316,11 @@ methods
 	end
 
 	function arch = ensureArchitecture(self,arch)
+	%arch = ensureArchitecture(arch)
+	%--------------------------------------------------------------------------
+	%Utility function to reprocess a supplied architecture, <arch>
+	%--------------------------------------------------------------------------
+	
 		if ~isstruct(arch), error('<arch> needs to be a struct');end
 		if ~isfield(arch,'dataSize'), error('must provide the size of the input');end
 		if ~isfield(arch,'inputType');
@@ -271,7 +330,19 @@ methods
 	end
 	
 	function self = init(self,arch)
-	% INITIALIZE THE CRBM FOR A GIVEN ARCHITECTURE
+	%net = init(arch)
+	%--------------------------------------------------------------------------
+	%Utility function to used intitialize a convolutional rbm given an archi-
+	%tecture.
+	%<arch> is a struct with required fields:
+	%	.dataSize  --  [#XPixels x #YPixels] size of input data
+	%	.inputType -- the class of inputs ('binary' or 'gaussian')
+	%
+	% <arch> can also contain an options fields <.opt>, which is a cell array
+	% of property-value pairs.
+	%
+	% Returns a mlnn object, <net>.
+	%--------------------------------------------------------------------------
 
 		arch = self.ensureArchitecture(arch);
 
@@ -326,7 +397,10 @@ methods
 	end
 
 	function [] = save(self,epoch)
-	% SAVE NETWORK AT A GIVEN EPOCH
+	%save(epoch)
+	%--------------------------------------------------------------------------
+	% Save network at a given epoch
+	%--------------------------------------------------------------------------
 		r = self;
 		if ~exist(r.saveFold,'dir')
 			mkdir(r.saveFold);
@@ -334,48 +408,73 @@ methods
 		save(fullfile(r.saveFold,sprintf('Epoch_%d.mat',epoch)),'r'); clear r;
 	end
 
-	function c = default(self)
-	% EDIT defaultCRBM.m FOR DEFAULT ARGUMENTS
-		args = defaultCRBM();
-		c = self.init(args);
-		fprintf('\nNote: using default arguments (see defaultRBM.m)\n\n');
-	end
-
 	function p = sigmoid(self,data)
+		% p = sigmoid(X)
+	%--------------------------------------------------------------------------
+	% Sigmoid activation function
+	%--------------------------------------------------------------------------
 		p = arrayfun(@(data)(1./(1 + exp(-data))),data);
 	end
 
 	function p = drawBernoulli(self,p);
+		% p = drawNormal(mu);
+	%--------------------------------------------------------------------------
+	% Draw samples from a multivariate normal  with mean <mu> and identity
+	% covariance.
+	%--------------------------------------------------------------------------
 		p = double(rand(size(p)) < p);
 	end
 
 	function p = drawMultinomial(self,p); % (UNUSED)
+	% p = drawNormal(mu);
+	%--------------------------------------------------------------------------
+	% Draw samples from a multinomial distribution probabilities <p>.
+	%--------------------------------------------------------------------------
+	
 		p = mnrnd(1,p,1);
 	end
 
 	function p = drawNormal(self,mu,sigma2); % (UNUSED)
+	% p = drawNormal(mu);
+	%--------------------------------------------------------------------------
+	% Draw samples from a multivariate normal with mean <mu> and identity
+	% covariance of dimension <sigma2>.
+	%--------------------------------------------------------------------------
 		S = eye(numel(sigma2));
 		S(find(S)) = sigma2;
 		p = mvnrnd(mu,S);
 	end
 
 	function out = ff(self,in)
-	% FLIP 1st 2 DIMENSIONS OF A TENSOR
+	%out = ff(in)
+	%--------------------------------------------------------------------------
+	% Flip 1st 2 dimensions of a tensor
+	%--------------------------------------------------------------------------
 		out = in(end:-1:1,end:-1:1,:);
 	end
 
 	function out = tXY(self,in);
-	% TRANSPOSE 1ST 2 DIMENSIONS OF TENSOR
+	%out = tXY(in);
+	%--------------------------------------------------------------------------
+	% Transpose 1st 2 dimensions of tensor
+	%--------------------------------------------------------------------------
 		out = permute(in,[2,1,3]);
 	end
 
 	function err = batchErr(self,data);
-	% CALCULATE SQUARED ERROR ON BATCH DATA
+	%--------------------------------------------------------------------------
+	% Calculate squared error on batch data
+	%--------------------------------------------------------------------------
 		err = sum((data(:)-self.eVis(:)).^2);
 	end
 
 	function [] = printProgress(self,type,aux)
-	% PRINT LEARNING PROGRESS
+	% printProgress(type,aux)
+	%--------------------------------------------------------------------------
+	% Utility function to display a particular <type> of message. <aux> are 
+	% optional auxiliary variables for printing a message.
+	%--------------------------------------------------------------------------
+	
 		switch type
 		case 'epoch'
 			fprintf('\nEpoch %d/%d',aux(1),aux(2));

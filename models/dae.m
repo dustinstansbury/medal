@@ -1,7 +1,7 @@
 classdef dae
 % Deep Autoencoder object.
 %-----------------------------------------------------------------------------
-% Initialize, train, and fine-tune a multilayer autencoder.
+% Initialize, train, and/or fine-tune a multilayer autencoder.
 %
 % Supports denoising autoencoders and hidden unit dropout.
 %
@@ -15,28 +15,42 @@ properties
 	nLayers;				% # OF AUTOENCODERS
 	aLayers;				% AUTOENCODER/NN LAYERS
 	verbose = 1;			% DISPLAY OUTPUT
+	saveDir;
 end
 
 methods
 	function self = dae(arch)
+	% net = dae(arch)
+	%--------------------------------------------------------------------------
+	%dae constructor method. Initilizes a mlnn object, <net> given a user-
+	%provided architecture, <arch>.
+	%--------------------------------------------------------------------------
 		self = self.init(arch);
 	end
 
 	function print(self)
+	%print()
+	%--------------------------------------------------------------------------
+	%Print properties and methods for dae object.
+	%--------------------------------------------------------------------------
+	
 		properties(self)
 		methods(self)
 	end
 
 	function self = init(self,arch)
-	% INITIALIZE DEEP AUTOENCODER
+	% net = init(arch)
+	%--------------------------------------------------------------------------
+	% Initialize deep autoencoder with a user-defined architecture <arch>.
+	%--------------------------------------------------------------------------
 	% <arch> IS AN ARCHTIECTURE STRUCT WITH THE FIELDS:
-	%	.shape -- [#INPUT #HID1, ..., #HIDN, #OUT]
+	%	.size -- [#INPUT #HID1, ..., #HIDN, #OUT]
 	%	.costFun -- COST FUNCTION FOR FIRST LAYER LEARNING
 	%	.lRate -- THE LEARNING RATE FOR EACH AE LAYER
 	%	.denoising -- THE INPUT CORRUPTION NOISE PERCENTAGE ()
 	%	.sparsity -- THE SPARSITY TARGET FOR HIDDEN UNITS
 	%	.dropout -- THE HIDDEN UNIT DROPOUT RATE FOR EACH AE LAYER
-	
+	%--------------------------------------------------------------------------
 		arch = self.ensureArchetecture(arch);
 		% GLOBAL OPTIONS
 		if isfield(arch,'opts');
@@ -75,7 +89,10 @@ methods
 	end
 
 	function self = train(self,data);
-	% TRAIN A DEEP AUTOENCODER 
+	%net = train(data);
+	%--------------------------------------------------------------------------
+	% Train a deep autoencoder.
+	%--------------------------------------------------------------------------
 		for iL = 1:numel(self.aLayers)
 			if self.verbose,
 				self.printProgress('layerTrain',iL);
@@ -87,11 +104,18 @@ methods
 			tmpNet = self.aLayers{iL}.fProp(data,data);
 			data = tmpNet.layers{end-1}.act;
 		end
+		if ~isempty(self.saveDir),
+			d = self;
+			save(fullfile(self.saveDir,'dae.mat'),'d','-v7.3');
+		end
 	end
 
 	function net = fineTune(self,data,targets,ftArch);
-	% FINE TUNE AUTOENCODER FEATURES FOR A TASK
-	% USING BACKPROP (STOCHASTIC GRADIENT DESCENT)
+	% net = fineTune(data,targets,ftArch);
+	%--------------------------------------------------------------------------
+	% Fine tune autoencoder features for a task using backprop (stochastic gradient 
+	% descent)
+	%--------------------------------------------------------------------------
 		[nObs,nOut] = size(targets);
 		if self.verbose
 			self.printProgress('fineTune')
@@ -111,7 +135,10 @@ methods
 	end
 
 	function arch = ensureArchetecture(self,arch)
-	% PREPROCESS INITIALIZATION INPUT
+	%arch = ensureArchitecture(arch)
+	%--------------------------------------------------------------------------
+	%Utility function to reprocess a supplied architecture, <arch>
+	%--------------------------------------------------------------------------
 	
 		if ~isstruct(arch),arch.size = arch; end
 
@@ -170,7 +197,11 @@ methods
 		end
 	end
 	function printProgress(self,type,aux)
-	% VERBOSE
+	%printProgress(type)
+	%--------------------------------------------------------------------------
+	% Verbose utility function. <type> is the type of message to print. <aux> 
+	% are optional arguments.
+	%--------------------------------------------------------------------------
 		switch type
 			case 'layerTrain'
 				fprintf('\n\nTraining Layer: %i / %i\n',aux(1),self.nLayers-1);
@@ -180,6 +211,5 @@ methods
 				fprintf('\nSaving...\n\n');
 		end
 	end
-end
-
-end
+end % END METHODS
+end % END CLASSDEF

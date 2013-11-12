@@ -9,8 +9,7 @@ classdef mlcnn
 % Also supports mean squared error (mse), binary (xent), and multi-class
 % (mcxent) cross-entropy cost functions.
 %
-% Supports multiple regularization techniques including weight decay, hidden
-% unit dropout, and early stopping.
+% Supports early stopping regularization.
 %------------------------------------------------------------------------------
 % DES
 % stan_s_bury@berkeley.edu
@@ -42,19 +41,16 @@ properties
 	stopEarlyCnt = 0;		% EARLY STOPPING CRITERION COUNTER
 	bestNet = [];			% STORAGE FOR BEST NETWORK
 
-	lRate0 = 1;				% DEFAULT LEARNING RATE
-	filtSize0 = [5 5];		% DEFAULT FILTER SIZE
-	stride0 = [2 2];		% DEFAULT SUBSAMPLING STRIDE
-	nFM0 = 10;				% DEFAULT # OF FEATURE MAPS PER CONV. LAYER
-	actFun0 = 'sigmoid';	% DEFAULT ACTIV.FUNCTION FOR CONV. LAYER
 	denoise = 0;			% PROPORTION OF VISIBLE UNIT DROPOUT (SIGMOID ONLY)
-
-	wDecay= 'not used';		% (POTENTIAL) WEIGHT DECAY TERM
-	momentum = 'not used';	% (POTENTIAL) MOMENTUM
 	dropout = 'not used';	% (POTENTIAL) PROP. OF HID. UNIT DROPOUT (SIGMOID ONLY)
 
-	saveEvery = 1e100;		% SAVE PROGRESS EVERY # OF EPOCHS
-	saveDir = './mlcnnSave';% DEFAULT PLACE TO SAVE
+	wPenalty = 0;			% WEIGHT DECAY TERM
+	beginWeightDecay=1;
+	momentum = 'not used';	% (POTENTIAL) MOMENTUM
+	
+
+	saveEvery = realmax;	% SAVE PROGRESS EVERY # OF EPOCHS
+	saveDir;
 	visFun;					% VISUALIZATION FUNCTION HANDLE
 	trainTime = Inf;		% TRAINING DURATION
 	verbose = 500;			% DISPLAY THIS # OF WEIGHT UPDATES
@@ -66,7 +62,11 @@ end
 
 methods
 	function self = mlcnn(arch)
-	% CONSTRUCTOR FUNCTION
+	% net = mlnn(arch)
+	%--------------------------------------------------------------------------
+	%mlnn constructor method. Initilizes a mlnn object, <net> given a user-
+	%provided architecture, <arch>.
+	%--------------------------------------------------------------------------
 		self = self.init(arch);
 	end
 
@@ -76,9 +76,14 @@ methods
 	end
 
 	function self = train(self, data, targets)
-	% TRAIN A CONVOLUTIONAL NEURAL NET USING STOCHASTIC GRADIENT DESCENT
-	% <data> IS [#PixelsY x #PixelsX x #Channels x #Obs];
-	% <targets> IS [#Output x #Obs]
+	%net = train(data, targets)
+	%--------------------------------------------------------------------------
+	% Train a convolutional neural net using stochastic gradient descent. 
+	% INPUT:
+	%     <data>:  - [#PixelsY x #PixelsX x #Channels x #Obs];
+	%
+	%  <targets>:  - [#Output x #Obs]
+	%--------------------------------------------------------------------------
 
 		% DISTRIBUTE VALUES TO THE GPU
 		if self.useGPU
@@ -97,6 +102,13 @@ methods
 	    while 1
 			if self.verbose, self.printProgress('epoch'); end
 			batchCost = zeros(nBatches,1);
+			wPenalty = self.wPenalty;
+			
+			if self.epoch >= self.beginWeightDecay
+				self.wPenalty = wPenalty;
+			else
+				self.wPenalty = 0;
+			end
 
 			for iB = 1:nBatches
 				% GET BATCH DATA
@@ -138,7 +150,9 @@ methods
 			end
 
 			% SAVE BEST NETWORK
-			if ~mod(self.epoch,self.saveEvery), self.save; end
+			if ~mod(self.epoch,self.saveEvery) & ~isempty(self.saveDir)
+				self.save; 
+			end
 
 			% DISPLAY
 			if self.verbose
@@ -160,9 +174,14 @@ methods
 	end
 
 	function self = fProp(self,netInput, targets)
-	% FORWARD PROPAGATION OF INPUT SIGNALS
-
-		nObs = size(netInput, 1);
+	%[net,out] = fProp(netInput, targets)
+	%--------------------------------------------------------------------------
+	%Forward propagation of input signals, <netInput>. Also updates state of
+	%network cost, if provided with <targets>. Also returns network output
+	%<out>, if requested.
+	%--------------------------------------------------------------------------
+		if notDefined('targets'), targets = []; end
+		nObs = size(netInput, 1);		
 		self.layers{1}.fm = netInput;
 
 		for lL = 2:self.nLayers
@@ -180,14 +199,17 @@ methods
 				% CALC LAYER PRE-ACTIVATION
 				for iM = 1:self.layers{lL-1}.nFM
 					featMap = featMap + convn(self.layers{lL-1}.fm(:,:,iM,:), ...
-										  self.layers{lL}.filter(:,:,iM,jM),'valid');
+					self.layers{lL}.filter(:,:,iM,jM),'valid');
 				end
+				
+				if any(isnan(self.layers{lL}.b(jM))), keyboard, end
 
 				% ADD LAYER BIAS
 				featMap = featMap + self.layers{lL}.b(jM);
 
 				% COMPLETE FEATURE MAP
 				self.layers{lL}.fm(:,:,jM,:) = self.calcAct(featMap,self.layers{lL}.actFun);
+				
 			end
 
 			case 'subsample'
@@ -204,21 +226,28 @@ methods
 			case 'rect'
 			case 'lcn'
 			case 'pool'
-
 			end
-
 		end
-		% COST FUNCTION & ERROR SIGNAL BASED ON OUTPUT
-		[self.J, self.netError] = self.cost(targets,self.costFun);
+		% COST FUNCTION & OUTPUT ERROR SIGNAL
+		if ~isempty(targets)
+			[self.J, self.netError] = self.cost(targets,self.costFun);
+		end
+		if nargout > 1
+			out = self.layers{end}.act;
+		end
 	end
 
 	function self = calcOutput(self);
+	% net = calcOutput();
+	%--------------------------------------------------------------------------
+	% Calculate the network ouput given the current parameters
+	%--------------------------------------------------------------------------
 
 		[nY,nX,nM,nObs]= size(self.layers{end-1}.fm);
 		
 		% # OF ENTRIES IN EACH FEATURE MAP
 		nMap = prod([nY,nX]);
-		
+
 		% INITIALIZE OUTPUT FEATURES
 		self.layers{end}.features = zeros(nMap*nM,nObs);
 
@@ -234,10 +263,17 @@ methods
 		                self.layers{end}.b);
 
 		self.netOut = self.calcAct(preAct,self.layers{end}.actFun);
+		
+		if any(isnan(self.netOut)), keyboard; end
 	end
 
 	function [J, dJ] = cost(self,targets,costFun)
-	% AVAILABLE COST FUNCTIONS & THEIR GRADIENTS
+	% [J, dJ] = cost(self,targets,costFun)
+	%--------------------------------------------------------------------------
+	% Calculate the cost function <J> and derivative thereof for a set of targets
+	% and the current state of the network.
+	%--------------------------------------------------------------------------
+
 		netOut = self.netOut;
 	
 		[nTargets,nObs] = size(netOut);
@@ -262,11 +298,20 @@ methods
 			[~, t] = max(targets,[],1);
 			J = sum((class ~= t))/nObs;
 			dJ = 'no gradient';
+		case {'correlation','cc'}
+			J = corr2(netOut,targets);
+			dJ = 'no gradient';
 		end
+		if any(isnan(self.J)), keyboard, end
 	end
 
 	function self = bProp(self)
-	% ERROR BACKPROPAGATION
+	%net = bProp()
+	%--------------------------------------------------------------------------
+	%Perform gradient descent no the loss w.r.t. each of the model parameters
+	%using the backpropagation algorithm. Returns updated network object, <net>
+	%--------------------------------------------------------------------------
+	
 		% DERIVATIVE OF OUTPUT ACTIVATION FUNCTION
 		dAct = self.calcActDeriv(self.netOut,self.layers{end}.actFun);
 
@@ -334,6 +379,8 @@ methods
 						propES = propES + convn(es,rotFilt,'full');
 					end
 					self.layers{lL}.es(:,:,jM,:) = propES;
+					if any(isnan(self.layers{lL}.es(:))), keyboard; end
+					if any(isinf(self.layers{lL}.es(:))), keyboard; end
 				end
 			end
 		end
@@ -349,10 +396,10 @@ methods
 						input = self.FLIPDIMS(self.layers{lL-1}.fm(:,:,iM,:));
 						dEdFilter = convn(input,es,'valid')/nObs;
 						self.layers{lL}.dFilter(:,:,iM,jM) = dEdFilter;
+						if isnan(any(dEdFilter)), keyboard; end
 					end
 					self.layers{lL}.db(jM) = sum(es(:))/nObs;
 				end
-				
 			case 'rect'
 			case 'lcn'
 			case 'pool'
@@ -362,68 +409,116 @@ methods
 		% GRADIENTS FOR OUTPUT LAYER WEIGHTS AND BIASES
 		self.layers{end}.dW = outES*self.layers{end}.features'/nObs;
 		self.layers{end}.db = mean(outES,2);
+		
 	end
 
 	function self = updateParams(self)
-	% UPDATE NETWORK PARAMETERS WITH CALCULATED GRADIENTS
-
-		% UPDATE OUTPUT WEIGHTS
-		lRate = self.layers{end}.lRate;
-		self.layers{end}.W = self.layers{end}.W - self.layers{end}.dW*lRate;
-		self.layers{end}.b = self.layers{end}.b - self.layers{end}.db*lRate;
-
+	%net = updateParams()
+	%--------------------------------------------------------------------------
+	%Update network parameters based on states of netowrk gradient, perform
+	%regularization such as weight decay and weight rescaling
+	%--------------------------------------------------------------------------
+		wPenalty = 0;
 		for lL = 2:self.nLayers-1
 			switch self.layers{lL}.type
-			% CURRENTLY, WE ONLY UPDATE FILTERS AND FM BIASES
-			case 'conv'
+			% CURRENTLY, ONLY UPDATE FILTERS AND FM BIASES
+			% PERHAPS, IN THE FUTURE, WE'LL BE FANCY, AND DO FANCY UPDATES
+			case {'conv','output'}
 				lRate = self.layers{lL}.lRate;
 				for jM = 1:self.layers{lL}.nFM
 					% UPDATE FEATURE BIASES
 					self.layers{lL}.b(jM) = self.layers{lL}.b(jM) - ...
 					                    lRate*self.layers{lL}.db(jM);
+					                    
 					% UPDATE FILTERS
 					for iM = 1:self.layers{lL-1}.nFM
+						if self.wPenalty > 0 % L2 REGULARIZATION
+							wPenalty = self.layers{lL}.filter(:,:,iM,jM)*self.wPenalty;
+						elseif self.wPenalty < 0 % L1-REGULARIZATION (SUB GRADIENTS)
+							wPenalty = sign(self.layers{lL}.filter(:,:,iM,jM))*abs(self.wPenalty);
+						end
 						self.layers{lL}.filter(:,:,iM,jM) = ...
 						self.layers{lL}.filter(:,:,iM,jM) - ...
-						lRate*self.layers{lL}.dFilter(:,:,iM,jM);
+						lRate*(self.layers{lL}.dFilter(:,:,iM,jM)+wPenalty);
 					end
 				end
 			end
 	    end
 	end
 
-	function out = calcAct(self,preAct,actFun)
-	% CALCULATE LAYER ACTIVATION 
+	function out = calcAct(self,in,actFun)
+	%out = calcAct(in,actFun)
+	%--------------------------------------------------------------------------
+	%Calculate the output activation <out> from an input <in> for activation
+	%function <actFun>. Available activation functions include 'linear','exp',
+	%'sigmoid', 'softmax', 'tanh', and 'softrect'.
+	%--------------------------------------------------------------------------
 
 		switch actFun
-		case 'linear'
-			out = preAct;
-		case 'sigmoid'
-			out = 1./(1 + exp(-preAct));
-		case 'tanh'
-			out = tanh(preAct);
-		case 'softrect'
-			out = log(1 + exp(preAct));
+			case 'linear'
+				out = self.stabilizeInput(in,1);
+
+			case 'exp'
+				in = self.stabilizeInput(in,1);
+				out = exp(in);
+
+			case 'sigmoid'
+				in = self.stabilizeInput(in,1);
+				out = 1./(1 + exp(-in));
+
+			case 'softmax'
+				in = self.stabilizeInput(in,1);
+				maxIn = max(in, [], 2);
+				tmp = exp(bsxfun(@minus,in,maxIn));
+				out = bsxfun(@rdivide,tmp,sum(tmp,2));
+
+			case 'tanh'
+				in = self.stabilizeInput(in,1);
+				out = tanh(in);
+				
+			case 'softrect'
+				k = 8;
+				in = self.stabilizeInput(in,k);
+				out = 1/k.*log(1 + exp(k*in));
 		end
 	end
 
-	function dAct = calcActDeriv(self,layerOut,actFun)
-	% ACTIVATION FUNCTION DERIVATIVES
+	function dAct = calcActDeriv(self,in,actFun)
+	%dAct = calcActDeriv(in,actFun)
+	%--------------------------------------------------------------------------
+	%Calculate the output activation derivatives <dAct> from an input <in> for
+	%activation function <actFun>. Available activation functions derivatives
+	% include 'linear','exp', sigmoid','tanh', and 'softrect'.
+	%--------------------------------------------------------------------------
 
 		switch actFun
-		case 'linear'
-			dAct = ones(size(layerOut));
-		case 'sigmoid'
-			dAct = layerOut.*(1-layerOut);
-		case 'tanh'
-			dAct = 1 - layerOut.^2;
-		case 'softrect'
-			dAct = 1./(1 + exp(-layerOut));
+			case 'linear'
+				dAct = ones(size(in));
+
+			case 'exp';
+				in = self.stabilizeInput(in,1);
+				dAct = in;
+
+			case 'sigmoid'
+				in = self.stabilizeInput(in,1);
+				dAct = in.*(1-in);
+				
+			case 'tanh'
+				in = self.stabilizeInput(in,1);
+				dAct = 1 - in.^2;
+				
+			case 'softrect'
+				k = 8;
+				in = self.stabilizeInput(in,k);
+				dAct = 1./(1 + exp(-k*in));
 		end
 	end
 
 	function out = DOWN(self,data,stride)
-	% DOWNSAMPLE 1ST 2 DIMENSIONS OF A TENSOR
+	%out = DOWN(data,stride)
+	%--------------------------------------------------------------------------
+	% Downsample 1st 2 dimensions of a tensor
+	%--------------------------------------------------------------------------
 		tmp = ones(stride(1),stride(2));
 		tmp = tmp/prod(stride(:));
 		out = convn(data,tmp,'valid');
@@ -431,6 +526,10 @@ methods
 	end
 	
 	function out = UP(self,data,scale);
+	%out = UP(data,stride)
+	%--------------------------------------------------------------------------
+	% Upsample 1st 2 dimensions of a tensor
+	%--------------------------------------------------------------------------
 	% UPSAMPLE DIMESIONS OF A TENSOR
 		dataSz = size(data);
 		idx = cell(numel(dataSz),1);
@@ -442,21 +541,30 @@ methods
 		out = data(idx{:});
 	end
 
-	function out = ROT(self,in)
-	% ROTATE THE 1ST TWO DIMENSIONS OF A TENSOR BY
-	% ONE-HALF ROTATION
-		out = in(end:-1:1,end:-1:1,:,:);
+	function out = ROT(self,out)
+	%out = ROT(self,in)
+	%--------------------------------------------------------------------------
+	% Rotate the 1st two dimensions of a tensor by one-half rotation
+	%--------------------------------------------------------------------------
+		out = out(end:-1:1,end:-1:1,:,:);
 	end
 
 	function out = FLIPDIMS(self,out)
+	%out = FLIPDIMS(in)
+	%--------------------------------------------------------------------------
+	% Flip all dimensions of a tensor <in>
+	%--------------------------------------------------------------------------
 		for iD = 1:numel(size(out))
 			out = flipdim(out,iD);
 		end
 	end
 
 	function self = makeBatches(self,data);
-	% CREATE MINIBATCHES
+	% net = makeBatches(data);
+	%--------------------------------------------------------------------------
+	% Create batches based on data. Observations are along the rows of data.
 	% (ASSUME THAT data IS RANDOMIZED ACROSS SAMPLES (ROWS))
+	%--------------------------------------------------------------------------
 
 		nObs = size(data,4);
 
@@ -496,7 +604,11 @@ methods
 	end
 
 	function self = crossValidate(self,data,targets)
-	% CROSSVALIDATE
+	%net = crossValidate(data,targets)
+	%--------------------------------------------------------------------------
+	%Run cross-validation on current model parameters.
+	%--------------------------------------------------------------------------
+	
 		xValCost = 0;
 		for iB = 1:numel(self.xValBatches)
 			idx = self.xValBatches{iB};
@@ -523,7 +635,12 @@ methods
 	end
 
 	function self = assessNet(self)
-	% ASSESS THE CURRENT PARAMETERS AND STORE NET, IF NECESSARY
+	%assessNet()
+	%--------------------------------------------------------------------------
+	%Utility function to assess the quality of current netork parameters and
+	%store net, if necessary.
+	%--------------------------------------------------------------------------
+	
 		if self.epoch > 1
 			if self.xValCost(self.epoch) < self.bestxValCost
 				self.bestNet = self.layers;
@@ -538,7 +655,10 @@ methods
 	end
 
 	function printProgress(self,type)
-	% VERBOSE
+	%printProgress(type)
+	%--------------------------------------------------------------------------
+	%Verbose utility function. <type> is the type of message to print.
+	%--------------------------------------------------------------------------
 		switch type
 		case 'epoch'
 			fprintf('Epoch: %i/%i',self.epoch,self.nEpoch);
@@ -567,6 +687,18 @@ methods
 	end
 
 	function self = init(self,arch)
+	%net = init(arch)
+	%--------------------------------------------------------------------------
+	%Utility function to used intitialize a neural network given an architecture
+	%<arch> is a cell array of structs, one for each layer in the network. The
+	%fields of each structure will depend on the type of layer. Supported lay-
+	%ers include 'input','conv','subsample','output'.
+	%
+	%Note, the first and last layers should be of 'type' 'input' and 'output'
+	%respectively.
+	%
+	% Returns a mlcnn object, <net>.
+	%--------------------------------------------------------------------------
 	% INTITIALIZE A NEURAL NETWORK GIVEN AN ARCHITECTURE
 	% <arch> IS A CELLARRAY OF STRUCTS WITH LAYER-SPECIFIC PARAMETERS
 
@@ -649,7 +781,11 @@ methods
 
 
 	function arch = ensureArchitecture(self,arch)
-	% PREPROCESS A SUPPLIED ARCHITECTURE
+	%arch = ensureArchitecture(arch)
+	%--------------------------------------------------------------------------
+	%Utility function to reprocess a supplied architecture, <arch>
+	%--------------------------------------------------------------------------
+	
 		if ~iscell(arch), error('<arch> needs to be a cell array of layer params');end
 		if ~strcmp(arch{1}.type,'input'), error('define an input layer'); end
 		if ~strcmp(arch{end}.type,'output'), error('define an output layer'); end
@@ -663,23 +799,23 @@ methods
 
 			case 'conv'
 				if ~any(strcmp(lParams,'filterSize')) || isempty(arch{lL}.filterSize)
-					arch{lL}.filterSize = self.filtSize0;
+					arch{lL}.filterSize = [5 5];
 				elseif numel(arch{lL}.filterSize) == 1;
 					arch{lL}.filterSize = repmat(arch{lL}.filterSize,[1,2]);
 				end
 				if ~any(strcmp(lParams,'nFM'));
-					arch{lL}.nFM = self.nFM0;
+					arch{lL}.nFM = 10;
 				end
 				if ~any(strcmp(lParams,'lRate'));
-					arch{lL}.lRate = self.lRate0;
+					arch{lL}.lRate = .5;
 				end
 				if ~any(strcmp(lParams,'actFun'));
-					arch{lL}.actFun = self.actFun0;
+					arch{lL}.actFun = 'sigmoid';
 				end
 
 			case 'subsample'
 				if ~any(strcmp(lParams,'stride')) || isempty(arch{lL}.stride);
-					arch{lL}.stride = self.stride0;
+					arch{lL}.stride = [2 2];
 				elseif numel(arch{lL}.stride) == 1;
 					arch{lL}.stride = repmat(arch{lL}.stride,[1,2]);
 				end
@@ -688,10 +824,10 @@ methods
 					error('must provide number of outputs');
 				end
 				if ~any(strcmp(lParams,'actFun'));
-					arch{lL}.actFun = self.actFun0;
+					arch{lL}.actFun = 'sigmoid';
 				end
 				if ~any(strcmp(lParams,'lRate'));
-					arch{lL}.lRate = self.lRate0;
+					arch{lL}.lRate = .5;
 				end
 			case 'rect'
 			case 'lcn'
@@ -700,18 +836,38 @@ methods
 		end
 	end
 
+	function in = stabilizeInput(self,in,k);
+	%in = stabilizeInput(in,k);
+	%--------------------------------------------------------------------------
+	%Utility function to ensure numerical stability. Clips values of <in>
+	%such that exp(k*in) is within single numerical precision.
+	%--------------------------------------------------------------------------
+		cutoff = log(realmin('single'));
+		in(in*k>-cutoff) = -cutoff/k;
+		in(in*k<cutoff) = cutoff/k;
+	end
+
+
 	function visLearning(self)
-	% VISUALIZATIONS
+	%visLearning()
+	%--------------------------------------------------------------------------
+	%Utility function to perform learning isualizations.
+	%--------------------------------------------------------------------------
 		try
 			self.visFun(self);
 		catch
-			plot(self.trainCost(1:self.epoch-1));
-			title(sprintf('Cost:=%s',upper(self.costFun)));
+			if ~isfield(self.auxVars,'printVisWarning')
+				fprintf('\nWARNING: visualization failed.')
+				self.auxVars.printVisWarning = true;
+			end
 		end
 	end
 
 	function save(self);
-	% SAVE CURRENT BEST NETWORK
+	%save();
+	%--------------------------------------------------------------------------
+	%Utility function to save current network.
+	%--------------------------------------------------------------------------
 		if self.verbose, self.printProgress('save'); end
 		if ~isdir(self.saveDir)
 			mkdir(self.saveDir);

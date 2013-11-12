@@ -33,9 +33,9 @@ title('Visible Bias');
 
 
 subplottight(3,3,5,.15);
-imagesc(RBM.aHid);
-colorbar
-title('Hidden Unit Activations');
+hist(RBM.aHid(:));
+title(sprintf('E[hid]=%1.2f\nTarget Sparsity =%0.4f',mean(RBM.aHid(:)),RBM.sparsity))
+
 
 subplottight(3,3,6,.15);
 visWeights((RBM.W(:,1:nVis)),0,[]);

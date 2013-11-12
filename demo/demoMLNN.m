@@ -28,10 +28,12 @@ net1 = net1.train(trainData,trainLabels);
 % DEFINE MULTI-LAYERED ARCHITECTURE 
 arch2 = arch;
 arch2.size = [nIn nHid nHid nOut];
-arch2.lRate = [.1 .1 .1];
-arch2.opts = {'nEpoch',20, ...
-              'costFun','xent'};%, ...
-%                'visFun', @visMLNNLearning};
+arch2.lRate = [.05 .05 .05];
+arch2.opts = {'nEpoch',10, ...
+              'costFun','xent'};% ...
+              % 'displayEvery', 1000, ...
+               % 'visFun', @visMLNNLearning};
+
 % INITIALIZE NETWORK
 net2 = mlnn(arch2);
 
