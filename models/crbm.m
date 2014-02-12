@@ -246,9 +246,9 @@ methods
 	%--------------------------------------------------------------------------
 	
 		for iK = 1:self.nFM
-			self.hidI(:,:,iK) = exp(conv2(vis,self.ff(self.W(:,:,iK)),'valid')+self.c(iK));
+			self.hidI(:,:,iK) = conv2(vis,self.ff(self.W(:,:,iK)),'valid')+self.c(iK);
 		end
-		eHid = self.hidI./(1 + self.pool(self.hidI)); % (Eq 5.3; Lee, 2010)
+		eHid = exp(self.hidI)./(1 + self.pool(exp(self.hidI))); % (Eq 5.3; Lee, 2010)
 		self.eHid = eHid;
 	end
 
@@ -286,7 +286,7 @@ methods
 	%--------------------------------------------------------------------------	
 		I = zeros(size(self.eHid));
 		for iK = 1:self.nFM
-			I(:,:,iK) = exp(conv2(vis,self.ff(self.W(:,:,iK)),'valid') + self.c(iK));
+			I(:,:,iK) = conv2(vis,self.ff(self.W(:,:,iK)),'valid') + self.c(iK);
 		end
 		ePool = 1 - (1./(1 + self.pool(exp(I)))); % (Eq 5.4; Lee, 2010)
 		self.ePool = ePool;

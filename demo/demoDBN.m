@@ -8,12 +8,12 @@ testLabels = single(testLabels);
 [nObs,nIn]= size(trainData);
 [~,nOut]=size(trainLabels);
 
-nHid = 100;
+nHid = 256;
 
 % DEFINE MULTI-LAYERED ARCHITECTURE 
 arch.size = [nIn nHid nHid];
-arch.lRate = [.1 .1 ];
-arch.nEpoch = [20 20];
+arch.lRate = [.1 .1];
+arch.nEpoch = [200 200];
 
 % GLOBAL OPTIONS
 arch.opts = {'inputType', 'binary', ...

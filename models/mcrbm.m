@@ -215,7 +215,6 @@ methods
 
 				% DISPLAY
 				if  ~mod(dCount,self.displayEvery);
-				
 					try
 						self.auxVars.error = self.log.err(1:iE-1);
 						self.auxVars.batchX = t.data;
